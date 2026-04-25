@@ -834,7 +834,7 @@ export class MineScene extends Phaser.Scene {
         .setDisplaySize(32, 32)
         .setDepth(UI_TEXT_DEPTH)
     );
-    const costText = this.add.text(panelLeft + 36, panelTop + 116, "", smallUiTextStyle(13, "#5a3411")).setDepth(UI_TEXT_DEPTH);
+    const costText = this.add.text(panelLeft + 29, panelTop + 116, "", smallUiTextStyle(13, "#5a3411")).setDepth(UI_TEXT_DEPTH);
     const buyCountText = this.add
       .text(panelLeft + UPGRADE_CARD_WIDTH / 2 + UPGRADE_BUTTON_WIDTH / 2 + 12, panelTop + 116, "", smallUiTextStyle(11, "#7b4e1d"))
       .setOrigin(0, 0)
@@ -1246,7 +1246,7 @@ export class MineScene extends Phaser.Scene {
     decorations.push(this.pinUi(this.add.image(left + 18, top + 123, "coin-icon").setDisplaySize(32, 32).setDepth(PINNED_UI_TEXT_DEPTH)));
     const costText = this.pinUi(
       this.add
-        .text(left + 36, top + 116, "", smallUiTextStyle(13, "#5a3411"))
+        .text(left + 29, top + 116, "", smallUiTextStyle(13, "#5a3411"))
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     const buyCountText = this.pinUi(
