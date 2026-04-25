@@ -20,10 +20,15 @@ export type WarehouseWorkerVisualState = "idle" | "carryCoal" | "sell";
 export type StorageVisualState = "empty" | "small" | "full";
 export type ElevatorCabinVisualState = "empty" | "loaded";
 
-export interface SimulationVisualState {
+export interface MineShaftVisualState {
+  shaftId: number;
   miner: MinerVisualState;
   minerPositionRatio: number;
   minePickupBox: StorageVisualState;
+}
+
+export interface SimulationVisualState {
+  mineShafts: Record<number, MineShaftVisualState>;
   elevatorCabin: ElevatorCabinVisualState;
   elevatorPositionRatio: number;
   warehouseWorker: WarehouseWorkerVisualState;
@@ -86,8 +91,8 @@ export class SimulationViewModel {
     }
   }
 
-  startMiningCycle(): SimulationFrame {
-    return this.manualMineAction();
+  startMiningCycle(shaftId = 1): SimulationFrame {
+    return this.manualMineAction(shaftId);
   }
 
   startElevatorCycle(): SimulationFrame {
@@ -98,8 +103,8 @@ export class SimulationViewModel {
     return this.manualWarehouseAction();
   }
 
-  manualMineAction(): SimulationFrame {
-    return this.frameFromEvents(this.simulation.manualMineAction());
+  manualMineAction(shaftId = 1): SimulationFrame {
+    return this.frameFromEvents(this.simulation.manualMineAction(shaftId));
   }
 
   manualElevatorAction(): SimulationFrame {
@@ -114,8 +119,8 @@ export class SimulationViewModel {
     return this.frameFromEvents(this.simulation.purchaseUpgrade(target, this.buyMode));
   }
 
-  purchaseMineShaftUpgrade(): SimulationFrame {
-    return this.frameFromEvents(this.simulation.purchaseUpgrade("mineShaft", this.buyMode));
+  purchaseMineShaftUpgrade(shaftId = 1): SimulationFrame {
+    return this.frameFromEvents(this.simulation.upgradeMineShaft(shaftId, this.buyMode));
   }
 
   purchaseElevatorUpgrade(): SimulationFrame {
@@ -130,16 +135,24 @@ export class SimulationViewModel {
     return this.frameFromEvents(this.simulation.purchaseManager(area));
   }
 
-  assignManager(managerId: string, area: ManagerArea): SimulationFrame {
-    return this.frameFromEvents(this.simulation.assignManager(managerId, area));
+  assignManager(managerId: string, area: ManagerArea, shaftId = 1): SimulationFrame {
+    return this.frameFromEvents(this.simulation.assignManager(managerId, area, shaftId));
   }
 
-  unassignManager(area: ManagerArea): SimulationFrame {
-    return this.frameFromEvents(this.simulation.unassignManager(area));
+  unassignManager(area: ManagerArea, shaftId = 1): SimulationFrame {
+    return this.frameFromEvents(this.simulation.unassignManager(area, undefined, undefined, shaftId));
   }
 
   activateManagerAbility(managerId: string): SimulationFrame {
     return this.frameFromEvents(this.simulation.activateManagerAbility(managerId));
+  }
+
+  unlockMineShaft(shaftId: number): SimulationFrame {
+    return this.frameFromEvents(this.simulation.unlockMineShaft(shaftId));
+  }
+
+  upgradeMineShaft(shaftId: number): SimulationFrame {
+    return this.frameFromEvents(this.simulation.upgradeMineShaft(shaftId, this.buyMode));
   }
 
   setBuyMode(buyMode: UpgradeBuyMode): SimulationFrame {
@@ -215,10 +228,8 @@ export class SimulationViewModel {
   }
 
   private createVisualState(state: GameState): SimulationVisualState {
-    const mineShaft = state.entities.mineShaft;
     const elevator = state.entities.elevator;
     const warehouse = state.entities.warehouse;
-    const miningCycleRatio = ratio(mineShaft.cycleProgressSeconds, state.currentValues.mineShaft.cycleTimeSeconds);
     const elevatorOneWaySeconds = state.currentValues.elevator.tripTimeSeconds / 2;
     const elevatorTripRatio =
       elevator.state === "moving"
@@ -232,11 +243,22 @@ export class SimulationViewModel {
     const commandFeedbackVisible =
       this.lastCommandFeedback !== undefined && this.lastCommandFeedback.expiresAtSeconds > state.timeSeconds;
     const warehouseVisibleStoredOre = getWarehouseVisibleStoredOre(warehouse, state.currentValues.warehouse, warehouseCycleRatio);
+    const mineShaftVisuals: Record<number, MineShaftVisualState> = {};
+
+    for (const shaft of Object.values(state.entities.mineShafts)) {
+      const currentValues = state.currentValues.mineShafts[shaft.shaftId];
+      const miningCycleRatio = ratio(shaft.cycleProgressSeconds, currentValues.cycleTimeSeconds);
+
+      mineShaftVisuals[shaft.shaftId] = {
+        shaftId: shaft.shaftId,
+        miner: getMinerState(shaft.state, miningCycleRatio),
+        minerPositionRatio: shaft.state === "mining" ? getWorkerTravelRatio(miningCycleRatio) : 0,
+        minePickupBox: getStorageState(ratio(shaft.storedOre, shaft.capacity))
+      };
+    }
 
     return {
-      miner: getMinerState(mineShaft.state, miningCycleRatio),
-      minerPositionRatio: mineShaft.state === "mining" ? getWorkerTravelRatio(miningCycleRatio) : 0,
-      minePickupBox: getStorageState(ratio(mineShaft.storedOre, mineShaft.capacity)),
+      mineShafts: mineShaftVisuals,
       elevatorCabin: elevator.carriedOre > 0 ? "loaded" : "empty",
       elevatorPositionRatio: elevator.state === "unloading" ? 1 : clamp01(elevatorTripRatio),
       warehouseWorker: getWarehouseWorkerState(warehouse.state, warehouseCycleRatio),
