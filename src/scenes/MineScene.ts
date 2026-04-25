@@ -2522,6 +2522,16 @@ export class MineScene extends Phaser.Scene {
       row.upgradeButtonText,
       row.upgradeButtonZone,
       ...row.decorations,
+      row.managerFrame,
+      row.managerTitleText,
+      row.managerEmptySlotImage,
+      row.managerPortraitImage,
+      row.managerRankText,
+      row.managerStatusText,
+      row.managerTimerText,
+      row.managerAbilityImage,
+      row.managerAbilityZone,
+      row.managerSlotZone,
       row.mineClickZone
     ];
     const lockedObjects = [
