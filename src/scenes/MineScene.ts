@@ -1566,12 +1566,18 @@ export class MineScene extends Phaser.Scene {
       this.drawMineShaftPanelFrame(row);
       this.drawMineShaftManagerSlotFrame(row, automated, managersLocked, assignedManager?.isActive ?? false);
       this.setMineShaftUpgradeEnabled(row, preview.canAfford && !preview.isMaxed);
-      row.managerTitleText.setText(`Shaft ${shaftId} Slot`);
+      const showManagerSlot = shaftState.isUnlocked;
+      row.managerFrame.setVisible(showManagerSlot);
+      row.managerTitleText.setVisible(showManagerSlot);
+      row.managerSlotZone.setVisible(showManagerSlot);
 
-      row.managerEmptySlotImage.setVisible(assignedManager === undefined);
-      row.managerPortraitImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 1);
-      row.managerAbilityImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 0.92);
-      row.managerAbilityZone.setVisible(assignedManager !== undefined);
+      row.managerEmptySlotImage.setVisible(showManagerSlot && assignedManager === undefined).setAlpha(assignedManager === undefined ? (managersLocked ? 0.52 : 0.9) : 0);
+      row.managerPortraitImage.setVisible(showManagerSlot && assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 1);
+      row.managerAbilityImage.setVisible(showManagerSlot && assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 0.92);
+      row.managerAbilityZone.setVisible(showManagerSlot && assignedManager !== undefined);
+      row.managerRankText.setVisible(showManagerSlot);
+      row.managerStatusText.setVisible(showManagerSlot);
+      row.managerTimerText.setVisible(showManagerSlot);
 
       if (assignedManager === undefined) {
         row.managerEmptySlotImage.setAlpha(managersLocked ? 0.52 : 0.9);
@@ -1713,7 +1719,7 @@ export class MineScene extends Phaser.Scene {
       this.drawManagerSlotFrame(slot, automated, locked, assignedManager?.isActive ?? false);
 
       slot.titleText.setText(`${getAreaLabel(area)} Slot`);
-      slot.emptySlotImage.setVisible(assignedManager === undefined);
+      slot.emptySlotImage.setVisible(assignedManager === undefined).setAlpha(assignedManager === undefined ? (locked ? 0.52 : 0.9) : 0);
       slot.portraitImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 1);
       slot.abilityImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 0.9);
       slot.abilityZone.setVisible(assignedManager !== undefined);
@@ -2516,18 +2522,6 @@ export class MineScene extends Phaser.Scene {
       row.upgradeButtonText,
       row.upgradeButtonZone,
       ...row.decorations,
-      row.managerFrame,
-      row.managerTitleText,
-      row.managerEmptySlotImage,
-      row.managerPortraitImage,
-      row.managerRankText,
-      row.managerStatusText,
-      row.managerTimerText,
-      row.managerAbilityImage,
-      row.managerAbilityZone,
-      row.managerSlotZone,
-      row.mineClickOutline,
-      row.mineClickChip,
       row.mineClickZone
     ];
     const lockedObjects = [
