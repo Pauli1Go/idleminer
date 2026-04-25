@@ -434,7 +434,7 @@ export class MineScene extends Phaser.Scene {
       .setDisplaySize(62, 62);
 
     this.warehouseFeedback = this.add
-      .text(236, 58, "", feedbackTextStyle(22, "#f8dc75"))
+      .text(310, 78, "", feedbackTextStyle(22, "#f8dc75"))
       .setOrigin(0.5)
       .setVisible(false);
   }
