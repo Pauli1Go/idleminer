@@ -140,11 +140,6 @@ const MINE_SHAFT_CARD_Y = 426;
 const UPGRADE_BUTTON_WIDTH = 132;
 const UPGRADE_BUTTON_HEIGHT = 34;
 
-const STATUS_PANEL_X = 18;
-const STATUS_PANEL_Y = 650;
-const STATUS_PANEL_WIDTH = 356;
-const STATUS_PANEL_HEIGHT = 46;
-
 const MANAGER_SLOT_WIDTH = 220;
 const MANAGER_SLOT_HEIGHT = 118;
 const MANAGER_SLOT_IMAGE_SIZE = 58;
@@ -291,7 +286,6 @@ export class MineScene extends Phaser.Scene {
   private commandFeedback!: Phaser.GameObjects.Text;
   private moneyText!: Phaser.GameObjects.Text;
   private productionText!: Phaser.GameObjects.Text;
-  private statusText!: Phaser.GameObjects.Text;
   private buyModeButtons: BuyModeButtonUi[] = [];
   private upgradeCards!: Record<UpgradeTarget, UpgradeCardUi>;
   private managerSlots!: Record<ManagerArea, ManagerSlotUi>;
@@ -528,13 +522,15 @@ export class MineScene extends Phaser.Scene {
     this.createBarPanel(MONEY_PANEL_X, MONEY_PANEL_Y, MONEY_PANEL_WIDTH, MONEY_PANEL_HEIGHT);
     this.add.image(MONEY_PANEL_X + 22, MONEY_PANEL_Y + MONEY_PANEL_HEIGHT / 2, "coin-icon").setDisplaySize(42, 42).setDepth(UI_TEXT_DEPTH);
     this.moneyText = this.add
-      .text(MONEY_PANEL_X + 42, MONEY_PANEL_Y + 7, "", topBarTextStyle(20, "#4b2709"))
+      .text(MONEY_PANEL_X + 42, MONEY_PANEL_Y + MONEY_PANEL_HEIGHT / 2, "", topBarTextStyle(20, "#4b2709"))
+      .setOrigin(0, 0.5)
       .setDepth(UI_TEXT_DEPTH);
 
     this.createBarPanel(FLOW_PANEL_X, FLOW_PANEL_Y, FLOW_PANEL_WIDTH, FLOW_PANEL_HEIGHT);
-    this.add.image(FLOW_PANEL_X + 22, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, "ore-icon").setDisplaySize(24, 24).setDepth(UI_TEXT_DEPTH);
+    this.add.image(FLOW_PANEL_X + 24, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, "ore-icon").setDisplaySize(40, 40).setDepth(UI_TEXT_DEPTH);
     this.productionText = this.add
-      .text(FLOW_PANEL_X + 42, FLOW_PANEL_Y + 9, "", topBarTextStyle(12, "#4b2709"))
+      .text(FLOW_PANEL_X + 56, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, "", topBarTextStyle(12, "#4b2709"))
+      .setOrigin(0, 0.5)
       .setDepth(UI_TEXT_DEPTH);
 
     this.createResetButton();
@@ -678,7 +674,7 @@ export class MineScene extends Phaser.Scene {
       .setDepth(UI_TEXT_DEPTH);
     this.add
       .image(left + UPGRADE_CARD_WIDTH / 2, top + 65, "upgrade-arrow-icon")
-      .setDisplaySize(14, 14)
+      .setDisplaySize(18, 18)
       .setDepth(UI_TEXT_DEPTH);
     const mainNextText = this.add
       .text(left + UPGRADE_CARD_WIDTH - 88, top + 62, "", metricValueTextStyle(18, "#234f66"))
@@ -695,7 +691,7 @@ export class MineScene extends Phaser.Scene {
       .setDepth(UI_TEXT_DEPTH);
     this.add
       .image(left + UPGRADE_CARD_WIDTH / 2, top + 104, "upgrade-arrow-icon")
-      .setDisplaySize(12, 12)
+      .setDisplaySize(18, 18)
       .setDepth(UI_TEXT_DEPTH);
     const secondaryNextText = this.add
       .text(left + UPGRADE_CARD_WIDTH - 88, top + 102, "", metricValueTextStyle(14, "#2f5962"))
@@ -707,7 +703,7 @@ export class MineScene extends Phaser.Scene {
       .text(left + 48, top + 116, "", smallUiTextStyle(13, "#5a3411"))
       .setDepth(UI_TEXT_DEPTH);
     const buyCountText = this.add
-      .text(left + UPGRADE_CARD_WIDTH / 2 + UPGRADE_BUTTON_WIDTH / 2 + 12, top + UPGRADE_CARD_HEIGHT - 25, "", smallUiTextStyle(11, "#7b4e1d"))
+      .text(left + UPGRADE_CARD_WIDTH / 2 + UPGRADE_BUTTON_WIDTH / 2 + 12, top + 116, "", smallUiTextStyle(11, "#7b4e1d"))
       .setOrigin(0, 0)
       .setDepth(UI_TEXT_DEPTH);
 
@@ -747,19 +743,6 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createStatusBar(): void {
-    this.drawRoundedPanel(STATUS_PANEL_X, STATUS_PANEL_Y, STATUS_PANEL_WIDTH, STATUS_PANEL_HEIGHT, {
-      fill: 0x17212a,
-      fillAlpha: 0.78,
-      innerFill: 0x293545,
-      innerAlpha: 0.16,
-      line: 0xf1c96b,
-      radius: 10
-    });
-
-    this.statusText = this.add
-      .text(STATUS_PANEL_X + 14, STATUS_PANEL_Y + 13, "", smallUiTextStyle(13, "#f7f1dd"))
-      .setDepth(UI_TEXT_DEPTH);
-
     this.commandFeedback = this.add
       .text(640, 686, "", feedbackTextStyle(17, "#f2dfbd"))
       .setOrigin(0.5)
@@ -1028,7 +1011,6 @@ export class MineScene extends Phaser.Scene {
       this.lastManagerPanelRefreshSecond = currentManagerSecond;
     }
 
-    this.statusText.setText(formatFlowStatus(state, events));
     this.activeBuyMode = buyMode;
     this.uiInitialized = true;
   }
@@ -1272,11 +1254,10 @@ export class MineScene extends Phaser.Scene {
     y: number
   ): void {
     this.createPanelCard(container, MANAGER_PANEL_X + 18, y, MANAGER_PANEL_WIDTH - 36, 112, 0x253e49, 0.98);
-    container.add(
-      this.add
-        .text(MANAGER_PANEL_X + 36, y + 14, "Currently assigned", smallUiTextStyle(13, "#f7e5b2"))
-        .setDepth(MANAGER_PANEL_TEXT_DEPTH)
-    );
+    const assignedTitleText = this.add
+      .text(MANAGER_PANEL_X + 36, y + 14, "Currently assigned", smallUiTextStyle(13, "#f7e5b2"))
+      .setDepth(MANAGER_PANEL_TEXT_DEPTH);
+    container.add(assignedTitleText);
 
     if (manager === undefined) {
       container.add(
@@ -1339,11 +1320,11 @@ export class MineScene extends Phaser.Scene {
 
       const abilityIcon = this.add
         .image(MANAGER_PANEL_X + 594, y + 58, getAbilityIconKey(manager.abilityType))
-        .setDisplaySize(40, 40)
+        .setDisplaySize(108, 108)
         .setAlpha(manager.isActive ? 1 : manager.remainingCooldownTime > 0 ? 0.48 : 0.92)
         .setDepth(MANAGER_PANEL_TEXT_DEPTH);
       const abilityZone = this.add
-        .zone(MANAGER_PANEL_X + 594, y + 58, 48, 48)
+        .zone(MANAGER_PANEL_X + 594, y + 58, 116, 116)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
         .setDepth(MANAGER_PANEL_INTERACTIVE_DEPTH);
@@ -1353,12 +1334,27 @@ export class MineScene extends Phaser.Scene {
       });
 
       container.add([abilityIcon, abilityZone]);
+
+      this.createPanelButton(
+        container,
+        assignedTitleText.x + assignedTitleText.width + 12,
+        y + 10,
+        96,
+        24,
+        "Unassign",
+        true,
+        () => {
+          this.applyFrame(this.viewModel.unassignManager(area), this.time.now);
+        },
+        true,
+        0xc94c4c
+      );
     }
 
     if (automated) {
       container.add(
         this.add
-          .text(MANAGER_PANEL_X + 470, y + 82, "Automated", smallUiTextStyle(14, "#95f0bd"))
+          .text(MANAGER_PANEL_X + 382, y + 82, "Automated", smallUiTextStyle(12, "#95f0bd"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
       return;
@@ -1495,13 +1491,15 @@ export class MineScene extends Phaser.Scene {
     label: string,
     visualEnabled: boolean,
     handler: () => void,
-    interactive = visualEnabled
+    interactive = visualEnabled,
+    enabledTint?: number
   ): void {
+    const tint = enabledTint ?? (visualEnabled ? 0xffffff : 0x8c6c58);
     const image = this.add
       .image(x + width / 2, y + height / 2, "button-panel")
       .setDisplaySize(width, height)
       .setAlpha(visualEnabled ? 1 : 0.64)
-      .setTint(visualEnabled ? 0xffffff : 0x8c6c58)
+      .setTint(tint)
       .setDepth(MANAGER_PANEL_TEXT_DEPTH);
     const text = this.add
       .text(x + width / 2, y + height / 2 - 1, label, smallUiTextStyle(11, visualEnabled ? "#fff8de" : "#e3c7aa"))
