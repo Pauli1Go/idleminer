@@ -357,6 +357,7 @@ interface ElevatorAnimationStep {
   targetY: number;
   durationMs: number;
   holdMs?: number;
+  loaded?: boolean;
 }
 
 export class MineScene extends Phaser.Scene {
@@ -397,8 +398,10 @@ export class MineScene extends Phaser.Scene {
         elapsedMs: number;
         holdMs: number;
         holdElapsedMs: number;
+        loaded: boolean;
       }
     | undefined;
+  private elevatorVisualLoaded = false;
   private shaftRouteFeedbackById: Record<number, ShaftRouteFeedback | undefined> = {};
   private lastManagerSlotRefreshSecond = -1;
   private lastManagerPanelRefreshSecond = -1;
@@ -1546,15 +1549,18 @@ export class MineScene extends Phaser.Scene {
   }
 
   private applyElevatorVisual(loadState: "empty" | "loaded", positionRatio: number, state: GameState): void {
-    if (this.activeElevatorAnimation === undefined && this.elevatorAnimationQueue.length === 0) {
+    const animating = this.activeElevatorAnimation !== undefined || this.elevatorAnimationQueue.length > 0;
+
+    if (!animating) {
       if (state.entities.elevator.state === "moving") {
         this.elevatorCabin.setY(Phaser.Math.Linear(ELEVATOR_TOP_Y, this.getElevatorStopY(1), positionRatio));
       } else if (state.entities.elevator.state === "idle") {
         this.elevatorCabin.setY(ELEVATOR_TOP_Y);
       }
+      this.elevatorCabin.setTexture(loadState === "loaded" ? "elevator-cabin-loaded" : "elevator-cabin-empty");
+    } else {
+      this.elevatorCabin.setTexture(this.elevatorVisualLoaded ? "elevator-cabin-loaded" : "elevator-cabin-empty");
     }
-
-    this.elevatorCabin.setTexture(loadState === "loaded" ? "elevator-cabin-loaded" : "elevator-cabin-empty");
   }
 
   private applyWarehouseVisual(
@@ -2483,22 +2489,19 @@ export class MineScene extends Phaser.Scene {
     row.unlockButtonZone.disableInteractive();
   }
 
-  private drawMineShaftPanelFrame(row: MineShaftRowUi, automated: boolean, activeAbility: boolean): void {
+  private drawMineShaftPanelFrame(row: MineShaftRowUi, _automated: boolean, _activeAbility: boolean): void {
     const top = this.getMineShaftPanelTop(row.shaftId);
-    const fill = automated ? 0x214033 : 0x4b2b14;
-    const innerFill = activeAbility ? 0x62bf7b : automated ? 0x2d6a50 : 0xf3d08d;
-    const line = activeAbility ? 0xb5ff8d : automated ? 0x95f0bd : 0x693813;
 
     row.panelFrame.clear();
-    row.panelFrame.fillStyle(fill, 0.98);
+    row.panelFrame.fillStyle(0x4b2b14, 0.98);
     row.panelFrame.fillRoundedRect(UPGRADE_COLUMN_X, top, UPGRADE_CARD_WIDTH, MINE_SHAFT_PANEL_HEIGHT, 16);
-    row.panelFrame.fillStyle(innerFill, automated || activeAbility ? 0.18 : 0.98);
+    row.panelFrame.fillStyle(0xf3d08d, 0.98);
     row.panelFrame.fillRoundedRect(UPGRADE_COLUMN_X + 5, top + 5, UPGRADE_CARD_WIDTH - 10, MINE_SHAFT_PANEL_HEIGHT - 10, 13);
     row.panelFrame.fillStyle(0x486470, 0.96);
     row.panelFrame.fillRoundedRect(UPGRADE_COLUMN_X + 8, top + 8, UPGRADE_CARD_WIDTH - 16, 28, 10);
     row.panelFrame.fillStyle(0xd8b168, 0.18);
     row.panelFrame.fillRoundedRect(UPGRADE_COLUMN_X + 12, top + 96, UPGRADE_CARD_WIDTH - 24, 60, 10);
-    row.panelFrame.lineStyle(2, line, 0.92);
+    row.panelFrame.lineStyle(2, 0x693813, 0.92);
     row.panelFrame.strokeRoundedRect(UPGRADE_COLUMN_X + 1, top + 1, UPGRADE_CARD_WIDTH - 2, MINE_SHAFT_PANEL_HEIGHT - 2, 16);
   }
 
@@ -2632,6 +2635,7 @@ export class MineScene extends Phaser.Scene {
     if (routeStarted !== undefined) {
       this.elevatorAnimationQueue = [];
       this.activeElevatorAnimation = undefined;
+      this.elevatorVisualLoaded = false;
 
       for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
         this.shaftRouteFeedbackById[shaftId] = undefined;
@@ -2646,7 +2650,8 @@ export class MineScene extends Phaser.Scene {
         this.elevatorAnimationQueue.push({
           targetY,
           durationMs: Math.abs(targetY - queuedTargetY) < 4 ? 0 : Math.max(180, Math.round(Math.abs(targetY - queuedTargetY) * 1.35)),
-          holdMs: 80
+          holdMs: 80,
+          loaded: event.carriedOre > 0
         });
         queuedTargetY = targetY;
       }
@@ -2659,7 +2664,8 @@ export class MineScene extends Phaser.Scene {
         this.elevatorAnimationQueue.push({
           targetY: queuedTargetY,
           durationMs: 0,
-          holdMs: 220
+          holdMs: 220,
+          loaded: true
         });
       }
 
@@ -2673,7 +2679,8 @@ export class MineScene extends Phaser.Scene {
       if (event.type === "elevatorRouteFinished") {
         this.elevatorAnimationQueue.push({
           targetY: ELEVATOR_TOP_Y,
-          durationMs: Math.max(260, Math.round(Math.abs(queuedTargetY - ELEVATOR_TOP_Y) * 1.1))
+          durationMs: Math.max(260, Math.round(Math.abs(queuedTargetY - ELEVATOR_TOP_Y) * 1.1)),
+          loaded: event.totalCollected > 0
         });
         queuedTargetY = ELEVATOR_TOP_Y;
       }
@@ -2694,8 +2701,10 @@ export class MineScene extends Phaser.Scene {
         durationMs: Math.max(0, nextStep.durationMs),
         elapsedMs: 0,
         holdMs: Math.max(0, nextStep.holdMs ?? 0),
-        holdElapsedMs: 0
+        holdElapsedMs: 0,
+        loaded: nextStep.loaded ?? this.elevatorVisualLoaded
       };
+      this.elevatorVisualLoaded = this.activeElevatorAnimation.loaded;
     }
 
     const active = this.activeElevatorAnimation;
@@ -2720,6 +2729,10 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.activeElevatorAnimation = undefined;
+
+    if (this.elevatorAnimationQueue.length === 0) {
+      this.elevatorVisualLoaded = false;
+    }
 
     if (this.elevatorAnimationQueue.length > 0) {
       this.advanceElevatorAnimation(0);
