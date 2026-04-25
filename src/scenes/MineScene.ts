@@ -1437,7 +1437,7 @@ export class MineScene extends Phaser.Scene {
 
   private createClickTarget(x: number, y: number, width: number, height: number, label: string, handler: () => void): WorldClickTargetUi {
     const zone = this.add.zone(x, y, width, height).setOrigin(0, 0).setInteractive({ useHandCursor: true });
-    const outline = this.add.rectangle(x, y, width, height).setOrigin(0, 0).setStrokeStyle(2, 0xf1c96b, 0.14);
+    const outline = this.add.rectangle(x, y, width, height).setOrigin(0, 0).setStrokeStyle(2, 0xf1c96b, 0.14).setVisible(false);
     const chip = this.add
       .text(x + 10, y + 8, label, {
         fontFamily: UI_FONT_FAMILY,
@@ -1447,16 +1447,9 @@ export class MineScene extends Phaser.Scene {
         backgroundColor: "rgba(24, 33, 42, 0.52)",
         padding: { x: 8, y: 4 }
       })
-      .setAlpha(0.74);
+      .setAlpha(0.74)
+      .setVisible(false);
 
-    zone.on("pointerover", () => {
-      outline.setStrokeStyle(2, 0xf1c96b, 0.38);
-      chip.setAlpha(0.96);
-    });
-    zone.on("pointerout", () => {
-      outline.setStrokeStyle(2, 0xf1c96b, 0.14);
-      chip.setAlpha(0.74);
-    });
     zone.on("pointerdown", handler);
 
     return { zone, outline, chip };

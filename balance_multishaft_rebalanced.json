@@ -164,7 +164,7 @@
   "upgradeCosts": {
     "notes": "Rebalanced for multiple mine shafts with 2x milestone boosts. Additional shaft production multipliers are cost-scaled close to linearly, so a new shaft is only slightly cheaper for the same production instead of massively outperforming elevator/warehouse. Milestone cost spikes are cumulative per reached largeBoostLevel.",
     "mineShaft": {
-      "baseUpgradeCostForLevel2": 80.0,
+      "baseUpgradeCostForLevel2": 20.0,
       "costGrowthMultiplierPerLevel": 1.093,
       "milestoneCostSpikeMultiplier": 2.25,
       "upgradeCostProductionScalingFactor": 0.95,
