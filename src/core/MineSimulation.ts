@@ -806,7 +806,8 @@ export class MineSimulation {
         this.money,
         shaft.stats.level,
         buyMode,
-        this.getUpgradeCostMultiplierForMineShaft(shaft.shaftId)
+        this.getUpgradeCostMultiplierForMineShaft(shaft.shaftId),
+        shaft.shaftId
       );
 
       mineShaftUpgradeById[shaft.shaftId] = {

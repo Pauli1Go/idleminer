@@ -34,7 +34,9 @@ import managerWarehouseRareUrl from "../../assets/managers/manager_warehouse_rar
 import coalDepositUrl from "../../assets/world/coal_deposit_small_level1.png";
 import elevatorCabinEmptyUrl from "../../assets/world/elevator_cabin_empty_level1.png";
 import elevatorCabinLoadedUrl from "../../assets/world/elevator_cabin_loaded_coal_level1.png";
-import elevatorShaftUrl from "../../assets/world/elevator_shaft_vertical_level1.png";
+import elevatorShaftBottomUrl from "../../assets/world/elevator_shaft_vertical_bottom_level1png.png";
+import elevatorShaftMiddleUrl from "../../assets/world/elevator_shaft_vertical_middle_level1.png";
+import elevatorShaftTopUrl from "../../assets/world/elevator_shaft_vertical_top_level1.png";
 import elevatorTowerUrl from "../../assets/world/elevator_tower_surface_level1.png";
 import mineShaftBackWallUrl from "../../assets/world/mine_shaft_back_wall_level1.png";
 import mineShaftFloorUrl from "../../assets/world/mine_shaft_floor_level1.png";
@@ -91,6 +93,10 @@ const ELEVATOR_BOTTOM_Y = 592;
 
 const MINE_SHAFT_CENTER_X = 742;
 const MINE_SHAFT_VERTICAL_SPACING = 212;
+const ELEVATOR_SHAFT_WIDTH = 124;
+const ELEVATOR_SHAFT_TOP_HEIGHT = MINE_SHAFT_VERTICAL_SPACING / 2;
+const ELEVATOR_SHAFT_MIDDLE_HEIGHT = MINE_SHAFT_VERTICAL_SPACING;
+const ELEVATOR_SHAFT_BOTTOM_HEIGHT = MINE_SHAFT_VERTICAL_SPACING / 2;
 const MINE_SHAFT_BACK_WALL_Y = 508;
 const MINE_SHAFT_BACK_WALL_WIDTH = 452;
 const MINE_SHAFT_BACK_WALL_HEIGHT = 226;
@@ -119,6 +125,10 @@ const LOCKED_SHAFT_PLACEHOLDER_WIDTH = 714;
 const LOCKED_SHAFT_PLACEHOLDER_HEIGHT = 126;
 const LOCKED_SHAFT_BUTTON_WIDTH = 168;
 const LOCKED_SHAFT_BUTTON_HEIGHT = 38;
+const MINE_MANAGER_SLOT_X = 148;
+const MINE_CLICK_TARGET_X = 518;
+const MINE_CLICK_TARGET_WIDTH = 448;
+const MINE_CLICK_TARGET_HEIGHT = 214;
 
 const MONEY_PANEL_X = 18;
 const MONEY_PANEL_Y = 14;
@@ -182,7 +192,9 @@ const assetManifest = {
   "background-surface": backgroundSurfaceUrl,
   "background-underground": backgroundUndergroundUrl,
   "elevator-tower": elevatorTowerUrl,
-  "elevator-shaft": elevatorShaftUrl,
+  "elevator-shaft-top": elevatorShaftTopUrl,
+  "elevator-shaft-middle": elevatorShaftMiddleUrl,
+  "elevator-shaft-bottom": elevatorShaftBottomUrl,
   "elevator-cabin-empty": elevatorCabinEmptyUrl,
   "elevator-cabin-loaded": elevatorCabinLoadedUrl,
   "warehouse-building": warehouseBuildingUrl,
@@ -285,8 +297,16 @@ interface ManagerHireOffer {
   canAfford: boolean;
 }
 
+interface WorldClickTargetUi {
+  zone: Phaser.GameObjects.Zone;
+  outline: Phaser.GameObjects.Rectangle;
+  chip: Phaser.GameObjects.Text;
+}
+
 interface MineShaftRowUi {
   shaftId: number;
+  managerSlotX: number;
+  managerSlotY: number;
   backWall: Phaser.GameObjects.Image;
   floor: Phaser.GameObjects.Image;
   supports: Phaser.GameObjects.Image;
@@ -300,9 +320,12 @@ interface MineShaftRowUi {
   levelText: Phaser.GameObjects.Text;
   productionLabelText: Phaser.GameObjects.Text;
   productionCurrentText: Phaser.GameObjects.Text;
+  productionArrowImage: Phaser.GameObjects.Image;
   productionNextText: Phaser.GameObjects.Text;
   storageSummaryText: Phaser.GameObjects.Text;
   costText: Phaser.GameObjects.Text;
+  managerFrame: Phaser.GameObjects.Graphics;
+  managerTitleText: Phaser.GameObjects.Text;
   managerEmptySlotImage: Phaser.GameObjects.Image;
   managerPortraitImage: Phaser.GameObjects.Image;
   managerRankText: Phaser.GameObjects.Text;
@@ -311,9 +334,9 @@ interface MineShaftRowUi {
   managerAbilityImage: Phaser.GameObjects.Image;
   managerAbilityZone: Phaser.GameObjects.Zone;
   managerSlotZone: Phaser.GameObjects.Zone;
-  manualButtonImage: Phaser.GameObjects.Image;
-  manualButtonText: Phaser.GameObjects.Text;
-  manualButtonZone: Phaser.GameObjects.Zone;
+  mineClickOutline: Phaser.GameObjects.Rectangle;
+  mineClickChip: Phaser.GameObjects.Text;
+  mineClickZone: Phaser.GameObjects.Zone;
   upgradeButtonImage: Phaser.GameObjects.Image;
   upgradeButtonText: Phaser.GameObjects.Text;
   upgradeButtonZone: Phaser.GameObjects.Zone;
@@ -343,7 +366,10 @@ export class MineScene extends Phaser.Scene {
   private readonly worldHeight: number;
 
   private mineShaftRows: Record<number, MineShaftRowUi> = {};
-  private elevatorShaft!: Phaser.GameObjects.Image;
+  private elevatorShaftTop!: Phaser.GameObjects.Image;
+  private elevatorShaftBottom!: Phaser.GameObjects.Image;
+  private elevatorShaftMiddleSegments: Phaser.GameObjects.Image[] = [];
+  private elevatorClickTarget!: WorldClickTargetUi;
   private elevatorCabin!: Phaser.GameObjects.Image;
   private warehouseWorker!: Phaser.GameObjects.Image;
   private warehousePile!: Phaser.GameObjects.Image;
@@ -352,6 +378,8 @@ export class MineScene extends Phaser.Scene {
   private moneyText!: Phaser.GameObjects.Text;
   private productionText!: Phaser.GameObjects.Text;
   private buyModeButtons: BuyModeButtonUi[] = [];
+  private buyModeBarPanel!: Phaser.GameObjects.Graphics;
+  private buyModeBarLabel!: Phaser.GameObjects.Text;
   private upgradeCards!: Record<"warehouse" | "elevator", UpgradeCardUi>;
   private managerSlots!: Record<"warehouse" | "elevator", ManagerSlotUi>;
   private saveRepository?: SaveGameRepository;
@@ -532,9 +560,22 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createElevator(): void {
-    this.elevatorShaft = this.add
-      .image(ELEVATOR_X, this.getElevatorShaftCenterY(1), "elevator-shaft")
-      .setDisplaySize(124, this.getElevatorShaftHeight(1));
+    this.elevatorShaftTop = this.add
+      .image(ELEVATOR_X, this.getElevatorShaftTopY(1), "elevator-shaft-top")
+      .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_TOP_HEIGHT);
+    this.elevatorShaftBottom = this.add
+      .image(ELEVATOR_X, this.getElevatorShaftBottomY(1), "elevator-shaft-bottom")
+      .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_BOTTOM_HEIGHT);
+
+    for (let middleIndex = 0; middleIndex < this.getElevatorMiddleSegmentCount(this.totalMineShafts); middleIndex += 1) {
+      this.elevatorShaftMiddleSegments.push(
+        this.add
+          .image(ELEVATOR_X, this.getElevatorShaftMiddleY(1, middleIndex), "elevator-shaft-middle")
+          .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_MIDDLE_HEIGHT)
+          .setVisible(false)
+      );
+    }
+
     this.add.image(ELEVATOR_X, 132, "elevator-tower").setDisplaySize(228, 174);
     this.elevatorCabin = this.add.image(ELEVATOR_X, ELEVATOR_TOP_Y, "elevator-cabin-empty").setDisplaySize(102, 102);
   }
@@ -639,12 +680,37 @@ export class MineScene extends Phaser.Scene {
     return this.getShaftY(ELEVATOR_BOTTOM_Y, shaftId);
   }
 
+  private getElevatorMiddleSegmentCount(deepestUnlockedShaftId: number): number {
+    return deepestUnlockedShaftId + 1;
+  }
+
   private getElevatorShaftHeight(deepestUnlockedShaftId: number): number {
-    return 632 + this.getShaftOffset(deepestUnlockedShaftId);
+    return ELEVATOR_SHAFT_TOP_HEIGHT + this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT + ELEVATOR_SHAFT_BOTTOM_HEIGHT;
   }
 
   private getElevatorShaftCenterY(deepestUnlockedShaftId: number): number {
     return 498 + this.getShaftOffset(deepestUnlockedShaftId) / 2;
+  }
+
+  private getElevatorShaftTopEdgeY(deepestUnlockedShaftId: number): number {
+    return this.getElevatorShaftCenterY(deepestUnlockedShaftId) - this.getElevatorShaftHeight(deepestUnlockedShaftId) / 2;
+  }
+
+  private getElevatorShaftTopY(deepestUnlockedShaftId: number): number {
+    return this.getElevatorShaftTopEdgeY(deepestUnlockedShaftId) + ELEVATOR_SHAFT_TOP_HEIGHT / 2;
+  }
+
+  private getElevatorShaftMiddleY(deepestUnlockedShaftId: number, middleIndex: number): number {
+    return this.getElevatorShaftTopEdgeY(deepestUnlockedShaftId) + ELEVATOR_SHAFT_TOP_HEIGHT + ELEVATOR_SHAFT_MIDDLE_HEIGHT / 2 + middleIndex * ELEVATOR_SHAFT_MIDDLE_HEIGHT;
+  }
+
+  private getElevatorShaftBottomY(deepestUnlockedShaftId: number): number {
+    return (
+      this.getElevatorShaftTopEdgeY(deepestUnlockedShaftId) +
+      ELEVATOR_SHAFT_TOP_HEIGHT +
+      this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT +
+      ELEVATOR_SHAFT_BOTTOM_HEIGHT / 2
+    );
   }
 
   private createMineShaftRow(shaftId: number): MineShaftRowUi {
@@ -659,8 +725,10 @@ export class MineScene extends Phaser.Scene {
     const panelTop = this.getMineShaftPanelTop(shaftId);
     const panelLeft = UPGRADE_COLUMN_X;
     const panelButtonY = panelTop + 156;
-    const managerRowY = panelTop + 118;
     const placeholderTop = backWallY - LOCKED_SHAFT_PLACEHOLDER_HEIGHT / 2;
+    const managerSlotX = MINE_MANAGER_SLOT_X;
+    const managerSlotY = backWallY - 58;
+    const mineClickTop = backWallY - 84;
 
     const backWall = this.add
       .image(MINE_SHAFT_CENTER_X, backWallY, "mine-shaft-back-wall")
@@ -703,8 +771,9 @@ export class MineScene extends Phaser.Scene {
     const productionCurrentText = this.add
       .text(panelLeft + 18, panelTop + 62, "", metricValueTextStyle(16, "#683d11"))
       .setDepth(UI_TEXT_DEPTH - 1);
-    this.add
-      .text(panelLeft + 136, panelTop + 62, "->", metricValueTextStyle(14, "#234f66"))
+    const productionArrowImage = this.add
+      .image(panelLeft + 148, panelTop + 68, "upgrade-arrow-icon")
+      .setDisplaySize(14, 14)
       .setDepth(UI_TEXT_DEPTH - 1);
     const productionNextText = this.add
       .text(panelLeft + 172, panelTop + 62, "", metricValueTextStyle(16, "#234f66"))
@@ -715,61 +784,68 @@ export class MineScene extends Phaser.Scene {
     const costText = this.add
       .text(panelLeft + 18, panelTop + 104, "", smallUiTextStyle(11, "#7b4e1d"))
       .setDepth(UI_TEXT_DEPTH - 1);
+    const managerFrame = this.add.graphics().setDepth(MANAGER_SLOT_DEPTH);
+    const managerTitleText = this.add
+      .text(managerSlotX + 12, managerSlotY + 10, `Shaft ${shaftId} Slot`, smallUiTextStyle(12, "#f9e9bb"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
     const managerEmptySlotImage = this.add
-      .image(panelLeft + 34, managerRowY, "manager-slot-empty")
-      .setDisplaySize(42, 42)
-      .setDepth(UI_TEXT_DEPTH - 1);
+      .image(managerSlotX + 38, managerSlotY + 58, getManagerEmptySlotKey("mineShaft"))
+      .setDisplaySize(MANAGER_SLOT_IMAGE_SIZE, MANAGER_SLOT_IMAGE_SIZE)
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
     const managerPortraitImage = this.add
-      .image(panelLeft + 34, managerRowY, getManagerPortraitKey("mineShaft", "junior"))
-      .setDisplaySize(46, 46)
-      .setDepth(UI_TEXT_DEPTH - 1)
-      .setVisible(false);
+      .image(managerSlotX + 38, managerSlotY + 60, getManagerPortraitKey("mineShaft", "junior"))
+      .setDisplaySize(MANAGER_SLOT_PORTRAIT_SIZE, MANAGER_SLOT_PORTRAIT_SIZE)
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH)
+      .setVisible(false)
+      .setAlpha(0);
     const managerRankText = this.add
-      .text(panelLeft + 64, panelTop + 106, "", smallUiTextStyle(11, "#f7f1dd"))
-      .setDepth(UI_TEXT_DEPTH - 1);
+      .text(managerSlotX + 76, managerSlotY + 38, "", smallUiTextStyle(11, "#f7f1dd"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
     const managerStatusText = this.add
-      .text(panelLeft + 64, panelTop + 124, "", smallUiTextStyle(11, "#bdd2d8"))
-      .setDepth(UI_TEXT_DEPTH - 1);
+      .text(managerSlotX + 76, managerSlotY + 60, "", smallUiTextStyle(11, "#bdd2d8"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
     const managerTimerText = this.add
-      .text(panelLeft + 64, panelTop + 142, "", smallUiTextStyle(11, "#dcecf1"))
-      .setDepth(UI_TEXT_DEPTH - 1);
+      .text(managerSlotX + 76, managerSlotY + 82, "", smallUiTextStyle(11, "#dcecf1"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
     const managerAbilityImage = this.add
-      .image(panelLeft + UPGRADE_CARD_WIDTH - 28, managerRowY, "ability-mining-speed")
-      .setDisplaySize(48, 48)
-      .setDepth(UI_TEXT_DEPTH - 1)
-      .setVisible(false);
+      .image(managerSlotX + 172, managerSlotY + 60, "ability-mining-speed")
+      .setDisplaySize(64, 64)
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH)
+      .setVisible(false)
+      .setAlpha(0);
     const managerAbilityZone = this.add
-      .zone(panelLeft + UPGRADE_CARD_WIDTH - 28, managerRowY, 50, 50)
+      .zone(managerSlotX + 172, managerSlotY + 60, 64, 64)
       .setOrigin(0.5)
-      .setDepth(UI_INTERACTIVE_DEPTH - 1);
+      .setDepth(MANAGER_SLOT_INTERACTIVE_DEPTH + 1)
+      .setVisible(false);
     const managerSlotZone = this.add
-      .zone(panelLeft + 14, panelTop + 98, 170, 54)
+      .zone(managerSlotX, managerSlotY, MANAGER_SLOT_WIDTH, MANAGER_SLOT_HEIGHT)
       .setOrigin(0, 0)
       .setInteractive({ useHandCursor: true })
-      .setDepth(UI_INTERACTIVE_DEPTH - 1);
-    const manualButtonImage = this.add
-      .image(panelLeft + 78, panelButtonY, "button-panel")
-      .setDisplaySize(MINE_SHAFT_PANEL_BUTTON_WIDTH, MINE_SHAFT_PANEL_BUTTON_HEIGHT)
-      .setDepth(UI_PANEL_DEPTH - 1);
-    const manualButtonText = this.add
-      .text(panelLeft + 78, panelButtonY - 1, "Mine", smallUiTextStyle(12, "#fff8de"))
-      .setOrigin(0.5)
-      .setDepth(UI_TEXT_DEPTH - 1);
-    const manualButtonZone = this.add
-      .zone(panelLeft + 78, panelButtonY, MINE_SHAFT_PANEL_BUTTON_WIDTH, MINE_SHAFT_PANEL_BUTTON_HEIGHT)
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-      .setDepth(UI_INTERACTIVE_DEPTH - 1);
+      .setDepth(MANAGER_SLOT_INTERACTIVE_DEPTH);
+    const mineClickTarget = this.createClickTarget(
+      MINE_CLICK_TARGET_X,
+      mineClickTop,
+      MINE_CLICK_TARGET_WIDTH,
+      MINE_CLICK_TARGET_HEIGHT,
+      `Shaft ${shaftId}`,
+      () => {
+        this.applyFrame(this.viewModel.manualMineAction(shaftId), this.time.now);
+      }
+    );
+    const mineClickOutline = mineClickTarget.outline;
+    const mineClickChip = mineClickTarget.chip;
+    const mineClickZone = mineClickTarget.zone;
     const upgradeButtonImage = this.add
-      .image(panelLeft + 212, panelButtonY, "button-panel")
+      .image(panelLeft + UPGRADE_CARD_WIDTH / 2, panelButtonY, "button-panel")
       .setDisplaySize(MINE_SHAFT_PANEL_BUTTON_WIDTH, MINE_SHAFT_PANEL_BUTTON_HEIGHT)
       .setDepth(UI_PANEL_DEPTH - 1);
     const upgradeButtonText = this.add
-      .text(panelLeft + 212, panelButtonY - 1, "Upgrade", smallUiTextStyle(12, "#fff8de"))
+      .text(panelLeft + UPGRADE_CARD_WIDTH / 2, panelButtonY - 1, "Upgrade", smallUiTextStyle(12, "#fff8de"))
       .setOrigin(0.5)
       .setDepth(UI_TEXT_DEPTH - 1);
     const upgradeButtonZone = this.add
-      .zone(panelLeft + 212, panelButtonY, MINE_SHAFT_PANEL_BUTTON_WIDTH, MINE_SHAFT_PANEL_BUTTON_HEIGHT)
+      .zone(panelLeft + UPGRADE_CARD_WIDTH / 2, panelButtonY, MINE_SHAFT_PANEL_BUTTON_WIDTH, MINE_SHAFT_PANEL_BUTTON_HEIGHT)
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true })
       .setDepth(UI_INTERACTIVE_DEPTH - 1);
@@ -831,10 +907,6 @@ export class MineScene extends Phaser.Scene {
       }
     );
 
-    manualButtonZone.on("pointerdown", () => {
-      this.applyFrame(this.viewModel.manualMineAction(shaftId), this.time.now);
-    });
-
     upgradeButtonZone.on("pointerdown", () => {
       this.applyFrame(this.viewModel.upgradeMineShaft(shaftId), this.time.now);
     });
@@ -845,6 +917,8 @@ export class MineScene extends Phaser.Scene {
 
     return {
       shaftId,
+      managerSlotX,
+      managerSlotY,
       backWall,
       floor,
       supports,
@@ -858,9 +932,12 @@ export class MineScene extends Phaser.Scene {
       levelText,
       productionLabelText,
       productionCurrentText,
+      productionArrowImage,
       productionNextText,
       storageSummaryText,
       costText,
+      managerFrame,
+      managerTitleText,
       managerEmptySlotImage,
       managerPortraitImage,
       managerRankText,
@@ -869,9 +946,9 @@ export class MineScene extends Phaser.Scene {
       managerAbilityImage,
       managerAbilityZone,
       managerSlotZone,
-      manualButtonImage,
-      manualButtonText,
-      manualButtonZone,
+      mineClickOutline,
+      mineClickChip,
+      mineClickZone,
       upgradeButtonImage,
       upgradeButtonText,
       upgradeButtonZone,
@@ -958,7 +1035,7 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createBuyModeBar(): void {
-    this.pinUi(this.drawRoundedPanel(UPGRADE_COLUMN_X, BUY_MODE_BAR_Y, UPGRADE_COLUMN_WIDTH, BUY_MODE_BAR_HEIGHT, {
+    this.buyModeBarPanel = this.pinUi(this.drawRoundedPanel(UPGRADE_COLUMN_X, BUY_MODE_BAR_Y, UPGRADE_COLUMN_WIDTH, BUY_MODE_BAR_HEIGHT, {
       fill: 0x213b46,
       fillAlpha: 0.9,
       innerFill: 0x5c7c87,
@@ -967,7 +1044,7 @@ export class MineScene extends Phaser.Scene {
       radius: 16
     }));
 
-    this.pinUi(
+    this.buyModeBarLabel = this.pinUi(
       this.add
         .text(UPGRADE_COLUMN_X + 14, BUY_MODE_BUTTON_LABEL_Y, "Buy", smallUiTextStyle(12, "#f6e9ba"))
         .setDepth(UI_TEXT_DEPTH)
@@ -1192,6 +1269,7 @@ export class MineScene extends Phaser.Scene {
         .setDisplaySize(MANAGER_SLOT_PORTRAIT_SIZE, MANAGER_SLOT_PORTRAIT_SIZE)
         .setDepth(MANAGER_SLOT_TEXT_DEPTH)
         .setVisible(false)
+        .setAlpha(0)
     );
     const rankText = this.pinUi(
       this.add
@@ -1204,12 +1282,14 @@ export class MineScene extends Phaser.Scene {
         .setDisplaySize(64, 64)
         .setDepth(MANAGER_SLOT_TEXT_DEPTH)
         .setVisible(false)
+        .setAlpha(0)
     );
     const abilityZone = this.pinUi(
       this.add
         .zone(config.x + 172, config.y + 60, 64, 64)
         .setOrigin(0.5)
         .setDepth(MANAGER_SLOT_INTERACTIVE_DEPTH + 1)
+        .setVisible(false)
     );
     const statusText = this.pinUi(
       this.add
@@ -1280,7 +1360,7 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createClickTargets(): void {
-    this.createClickTarget(392, 74, 132, 572, "Elevator", () => {
+    this.elevatorClickTarget = this.createClickTarget(392, 74, 132, 572, "Elevator", () => {
       this.applyFrame(this.viewModel.startElevatorCycle(), this.time.now);
     });
 
@@ -1289,7 +1369,7 @@ export class MineScene extends Phaser.Scene {
     });
   }
 
-  private createClickTarget(x: number, y: number, width: number, height: number, label: string, handler: () => void): void {
+  private createClickTarget(x: number, y: number, width: number, height: number, label: string, handler: () => void): WorldClickTargetUi {
     const zone = this.add.zone(x, y, width, height).setOrigin(0, 0).setInteractive({ useHandCursor: true });
     const outline = this.add.rectangle(x, y, width, height).setOrigin(0, 0).setStrokeStyle(2, 0xf1c96b, 0.14);
     const chip = this.add
@@ -1312,6 +1392,14 @@ export class MineScene extends Phaser.Scene {
       chip.setAlpha(0.74);
     });
     zone.on("pointerdown", handler);
+
+    return { zone, outline, chip };
+  }
+
+  private updateWorldClickTarget(target: WorldClickTargetUi, x: number, y: number, width: number, height: number): void {
+    target.zone.setPosition(x, y).setSize(width, height);
+    target.outline.setPosition(x, y).setSize(width, height);
+    target.chip.setPosition(x + 10, y + 8);
   }
 
   private applyFrame(frame: SimulationFrame, time: number): void {
@@ -1336,6 +1424,9 @@ export class MineScene extends Phaser.Scene {
   }
 
   private refreshMineShaftRows(state: GameState, visual: SimulationFrame["visual"], time: number): void {
+    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
+    const nextLockedShaftId = deepestUnlockedShaftId < this.totalMineShafts ? deepestUnlockedShaftId + 1 : null;
+
     for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
       const row = this.mineShaftRows[shaftId];
       const shaftState = state.entities.mineShafts[shaftId];
@@ -1347,8 +1438,14 @@ export class MineScene extends Phaser.Scene {
       const routeFeedback = this.shaftRouteFeedbackById[shaftId];
       const previousUnlocked = shaftId === 1 || state.entities.mineShafts[shaftId - 1]?.isUnlocked === true;
       const canUnlock = previousUnlocked && state.money + Number.EPSILON >= shaftState.unlockCost;
+      const rowMode = shaftState.isUnlocked ? "unlocked" : shaftId === nextLockedShaftId ? "locked" : "hidden";
 
-      this.setMineShaftRowUnlocked(row, shaftState.isUnlocked);
+      this.setMineShaftRowMode(row, rowMode);
+
+      if (rowMode === "hidden") {
+        continue;
+      }
+
       row.routeText.setVisible(routeFeedback !== undefined && routeFeedback.expiresAtSeconds > state.timeSeconds);
       row.routeText.setText(routeFeedback?.text ?? "");
 
@@ -1395,8 +1492,8 @@ export class MineScene extends Phaser.Scene {
       row.levelText.setText(`Lvl ${preview.currentLevel}`);
       row.productionCurrentText.setText(formatRate(state.currentValues.mineShafts[shaftId].throughputPerSecond));
       row.productionNextText.setText(preview.isMaxed ? "MAX" : formatRate(preview.previewStats.throughputPerSecond));
-      row.storageSummaryText.setText(`Stored ${formatAmount(shaftState.storedOre)} / ${formatAmount(shaftState.capacity)}`);
-      row.costText.setText(preview.isMaxed ? "MAX" : `Upgrade ${formatAmount(preview.cost)}`);
+      row.storageSummaryText.setText(`${formatAmount(shaftState.storedOre)} / ${formatAmount(shaftState.capacity)}`);
+      row.costText.setText(preview.isMaxed ? "MAX" : formatAmount(preview.cost));
 
       fitTextToWidth(row.productionCurrentText, 108, [16, 15, 14, 13, 12]);
       fitTextToWidth(row.productionNextText, 108, [16, 15, 14, 13, 12]);
@@ -1404,16 +1501,19 @@ export class MineScene extends Phaser.Scene {
       fitTextToWidth(row.costText, 250, [11, 10, 9]);
 
       this.drawMineShaftPanelFrame(row, automated, assignedManager?.isActive ?? false);
+      this.drawMineShaftManagerSlotFrame(row, automated, managersLocked, assignedManager?.isActive ?? false);
       this.setWorldButtonEnabled(
         row.upgradeButtonImage,
         row.upgradeButtonText,
         row.upgradeButtonZone,
         preview.canAfford && !preview.isMaxed
       );
+      row.managerTitleText.setText(`Shaft ${shaftId} Slot`);
 
       row.managerEmptySlotImage.setVisible(assignedManager === undefined);
-      row.managerPortraitImage.setVisible(assignedManager !== undefined);
-      row.managerAbilityImage.setVisible(assignedManager !== undefined);
+      row.managerPortraitImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 1);
+      row.managerAbilityImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 0.92);
+      row.managerAbilityZone.setVisible(assignedManager !== undefined);
 
       if (assignedManager === undefined) {
         row.managerEmptySlotImage.setAlpha(managersLocked ? 0.52 : 0.9);
@@ -1435,19 +1535,23 @@ export class MineScene extends Phaser.Scene {
         row.managerAbilityZone.setInteractive({ useHandCursor: true });
       }
 
+      row.mineClickChip.setText(automated ? `${shaftState.displayName} Auto` : shaftState.displayName);
+
       if (automated) {
-        row.manualButtonText.setText("Automated");
-        this.setWorldButtonEnabled(row.manualButtonImage, row.manualButtonText, row.manualButtonZone, false, true);
+        this.setWorldClickTargetEnabled(row.mineClickOutline, row.mineClickChip, row.mineClickZone, false);
       } else {
-        row.manualButtonText.setText("Mine");
-        this.setWorldButtonEnabled(row.manualButtonImage, row.manualButtonText, row.manualButtonZone, true);
+        this.setWorldClickTargetEnabled(row.mineClickOutline, row.mineClickChip, row.mineClickZone, true);
       }
     }
   }
 
   private applyElevatorVisual(loadState: "empty" | "loaded", positionRatio: number, state: GameState): void {
     if (this.activeElevatorAnimation === undefined && this.elevatorAnimationQueue.length === 0) {
-      this.elevatorCabin.setY(Phaser.Math.Linear(ELEVATOR_TOP_Y, this.getElevatorStopY(1), positionRatio));
+      if (state.entities.elevator.state === "moving") {
+        this.elevatorCabin.setY(Phaser.Math.Linear(ELEVATOR_TOP_Y, this.getElevatorStopY(1), positionRatio));
+      } else if (state.entities.elevator.state === "idle") {
+        this.elevatorCabin.setY(ELEVATOR_TOP_Y);
+      }
     }
 
     this.elevatorCabin.setTexture(loadState === "loaded" ? "elevator-cabin-loaded" : "elevator-cabin-empty");
@@ -1548,8 +1652,9 @@ export class MineScene extends Phaser.Scene {
 
       slot.titleText.setText(`${getAreaLabel(area)} Slot`);
       slot.emptySlotImage.setVisible(assignedManager === undefined);
-      slot.portraitImage.setVisible(assignedManager !== undefined);
-      slot.abilityImage.setVisible(assignedManager !== undefined);
+      slot.portraitImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 1);
+      slot.abilityImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 0.9);
+      slot.abilityZone.setVisible(assignedManager !== undefined);
 
       if (assignedManager !== undefined) {
         slot.portraitImage
@@ -1631,20 +1736,22 @@ export class MineScene extends Phaser.Scene {
 
     this.managerPanel?.destroy(true);
 
-    const container = this.add.container(0, 0).setDepth(MANAGER_PANEL_DEPTH).setScrollFactor(0);
+    const container = this.pinUi(this.add.container(0, 0).setDepth(MANAGER_PANEL_DEPTH));
     this.managerPanel = container;
     const automated = area === "mineShaft" ? state.managers.automationEnabledByShaft[shaftId ?? 1] ?? false : state.managers.automationEnabledByArea[area];
 
-    const backdrop = this.add
-      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.42)
-      .setOrigin(0, 0)
-      .setInteractive();
+    const backdrop = this.addManagerPanelObject(
+      container,
+      this.add
+        .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.42)
+        .setOrigin(0, 0)
+        .setInteractive()
+    );
     backdrop.on("pointerdown", () => {
       this.closeManagerPanel();
     });
-    container.add(backdrop);
 
-    const panelFrame = this.add.graphics();
+    const panelFrame = this.addManagerPanelObject(container, this.add.graphics());
     panelFrame.fillStyle(0x14222c, 0.98);
     panelFrame.fillRoundedRect(MANAGER_PANEL_X, MANAGER_PANEL_Y, MANAGER_PANEL_WIDTH, MANAGER_PANEL_HEIGHT, 18);
     panelFrame.fillStyle(0xf0c66c, 0.96);
@@ -1653,9 +1760,9 @@ export class MineScene extends Phaser.Scene {
     panelFrame.fillRoundedRect(MANAGER_PANEL_X + 6, MANAGER_PANEL_Y + 66, MANAGER_PANEL_WIDTH - 12, MANAGER_PANEL_HEIGHT - 72, 14);
     panelFrame.lineStyle(2, 0xf1c96b, 0.92);
     panelFrame.strokeRoundedRect(MANAGER_PANEL_X + 1, MANAGER_PANEL_Y + 1, MANAGER_PANEL_WIDTH - 2, MANAGER_PANEL_HEIGHT - 2, 18);
-    container.add(panelFrame);
 
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .text(
           MANAGER_PANEL_X + 22,
@@ -1666,7 +1773,8 @@ export class MineScene extends Phaser.Scene {
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
 
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .text(
           MANAGER_PANEL_X + 244,
@@ -1697,11 +1805,12 @@ export class MineScene extends Phaser.Scene {
     const contentAreaHeight = MANAGER_PANEL_HEIGHT - 72;
 
     const contentMaskShape = this.make.graphics({});
+    this.pinUi(contentMaskShape);
     contentMaskShape.fillStyle(0xffffff);
     contentMaskShape.fillRoundedRect(contentAreaX, contentAreaY, contentAreaWidth, contentAreaHeight, 14);
     const contentMask = contentMaskShape.createGeometryMask();
 
-    const contentContainer = this.add.container(0, this.managerPanelScrollY);
+    const contentContainer = this.pinUi(this.add.container(0, this.managerPanelScrollY));
     contentContainer.setMask(contentMask);
     container.add(contentContainer);
 
@@ -1710,7 +1819,8 @@ export class MineScene extends Phaser.Scene {
     this.createAssignedManagerPanel(contentContainer, area, assignedManager, automated, assignedY, shaftId);
 
     let cursorY = assignedY + 132;
-    contentContainer.add(
+    this.addManagerPanelObject(
+      contentContainer,
       this.add
         .text(MANAGER_PANEL_X + 22, cursorY, "Hire Offers", smallUiTextStyle(14, "#f9e9bb"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
@@ -1728,7 +1838,8 @@ export class MineScene extends Phaser.Scene {
     cursorY += Math.ceil(offers.length / 2) * (MANAGER_ENTRY_HEIGHT + MANAGER_ENTRY_GAP_Y) + 14;
 
     const ownedManagers = state.managers.ownedManagers.filter((manager) => manager.area === area && manager.isOwned);
-    contentContainer.add(
+    this.addManagerPanelObject(
+      contentContainer,
       this.add
         .text(MANAGER_PANEL_X + 22, cursorY, "Owned Managers", smallUiTextStyle(14, "#f9e9bb"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
@@ -1736,7 +1847,8 @@ export class MineScene extends Phaser.Scene {
     cursorY += 26;
 
     if (ownedManagers.length === 0) {
-      contentContainer.add(
+      this.addManagerPanelObject(
+        contentContainer,
         this.add
           .text(MANAGER_PANEL_X + 26, cursorY + 8, "No managers in this area yet.", smallUiTextStyle(12, "#bdd2d8"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
@@ -1764,7 +1876,7 @@ export class MineScene extends Phaser.Scene {
     // Scrollbar
     if (maxScroll > 0) {
       const scrollbarHeight = Math.max(30, (contentAreaHeight / totalContentHeight) * contentAreaHeight);
-      const scrollbar = this.add.graphics();
+      const scrollbar = this.addManagerPanelObject(container, this.add.graphics());
       (scrollbar as any).isScrollbar = true;
       (scrollbar as any).scrollbarHeight = scrollbarHeight;
       scrollbar.fillStyle(0xf1c96b, 0.4);
@@ -1772,8 +1884,6 @@ export class MineScene extends Phaser.Scene {
       
       const scrollPercent = -this.managerPanelScrollY / maxScroll;
       scrollbar.setY(contentAreaY + 5 + scrollPercent * (contentAreaHeight - scrollbarHeight - 10));
-      
-      container.add(scrollbar);
     }
   }
 
@@ -1786,30 +1896,36 @@ export class MineScene extends Phaser.Scene {
     shaftId: number | null = null
   ): void {
     this.createPanelCard(container, MANAGER_PANEL_X + 18, y, MANAGER_PANEL_WIDTH - 36, 112, 0x253e49, 0.98);
-    const assignedTitleText = this.add
-      .text(MANAGER_PANEL_X + 36, y + 14, "Currently assigned", smallUiTextStyle(13, "#f7e5b2"))
-      .setDepth(MANAGER_PANEL_TEXT_DEPTH);
-    container.add(assignedTitleText);
+    const assignedTitleText = this.addManagerPanelObject(
+      container,
+      this.add
+        .text(MANAGER_PANEL_X + 36, y + 14, "Currently assigned", smallUiTextStyle(13, "#f7e5b2"))
+        .setDepth(MANAGER_PANEL_TEXT_DEPTH)
+    );
 
     if (manager === undefined) {
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .image(MANAGER_PANEL_X + 64, y + 66, getManagerEmptySlotKey(area))
           .setDisplaySize(58, 58)
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(MANAGER_PANEL_X + 104, y + 48, "No manager assigned", smallUiTextStyle(14, "#dcecf1"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(MANAGER_PANEL_X + 104, y + 72, "This area is running manually.", smallUiTextStyle(12, "#bdd2d8"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
     } else {
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .image(MANAGER_PANEL_X + 64, y + 64, getManagerPortraitKey(area, manager.rank))
           .setDisplaySize(66, 66)
@@ -1823,8 +1939,9 @@ export class MineScene extends Phaser.Scene {
         smallUiTextStyle(13, "#ecf8fa")
       );
       fitTextToWidth(managerNameText, 260, [13, 12, 11]);
-      container.add(managerNameText.setDepth(MANAGER_PANEL_TEXT_DEPTH));
-      container.add(
+      this.addManagerPanelObject(container, managerNameText.setDepth(MANAGER_PANEL_TEXT_DEPTH));
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(
             MANAGER_PANEL_X + 106,
@@ -1834,7 +1951,8 @@ export class MineScene extends Phaser.Scene {
           )
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(
             MANAGER_PANEL_X + 106,
@@ -1844,28 +1962,33 @@ export class MineScene extends Phaser.Scene {
           )
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(MANAGER_PANEL_X + 382, y + 38, formatManagerTimer(manager), smallUiTextStyle(12, "#f1d389"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
 
-      const abilityIcon = this.add
-        .image(MANAGER_PANEL_X + 594, y + 58, getAbilityIconKey(manager.abilityType))
-        .setDisplaySize(108, 108)
-        .setAlpha(manager.isActive ? 1 : manager.remainingCooldownTime > 0 ? 0.48 : 0.92)
-        .setDepth(MANAGER_PANEL_TEXT_DEPTH);
-      const abilityZone = this.add
-        .zone(MANAGER_PANEL_X + 594, y + 58, 116, 116)
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true })
-        .setDepth(MANAGER_PANEL_INTERACTIVE_DEPTH);
+      const abilityIcon = this.addManagerPanelObject(
+        container,
+        this.add
+          .image(MANAGER_PANEL_X + 594, y + 58, getAbilityIconKey(manager.abilityType))
+          .setDisplaySize(108, 108)
+          .setAlpha(manager.isActive ? 1 : manager.remainingCooldownTime > 0 ? 0.48 : 0.92)
+          .setDepth(MANAGER_PANEL_TEXT_DEPTH)
+      );
+      const abilityZone = this.addManagerPanelObject(
+        container,
+        this.add
+          .zone(MANAGER_PANEL_X + 594, y + 58, 116, 116)
+          .setOrigin(0.5)
+          .setInteractive({ useHandCursor: true })
+          .setDepth(MANAGER_PANEL_INTERACTIVE_DEPTH)
+      );
 
       abilityZone.on("pointerdown", () => {
         this.activateAssignedManagerAbility(area, shaftId ?? 1);
       });
-
-      container.add([abilityIcon, abilityZone]);
 
       this.createPanelButton(
         container,
@@ -1884,9 +2007,20 @@ export class MineScene extends Phaser.Scene {
     }
 
     if (automated) {
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(MANAGER_PANEL_X + 382, y + 82, "Automated", smallUiTextStyle(12, "#95f0bd"))
+          .setDepth(MANAGER_PANEL_TEXT_DEPTH)
+      );
+      return;
+    }
+
+    if (area === "mineShaft") {
+      this.addManagerPanelObject(
+        container,
+        this.add
+          .text(MANAGER_PANEL_X + 382, y + 82, "Manual via shaft click", smallUiTextStyle(12, "#f1d389"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
       return;
@@ -1923,32 +2057,37 @@ export class MineScene extends Phaser.Scene {
       manager.isAssigned ? 0x284f38 : 0x1f323c,
       0.96
     );
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .image(x + 22, y + 21, getManagerPortraitKey(manager.area, manager.rank))
         .setDisplaySize(34, 34)
         .setFlipX(false)
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .image(x + 58, y + 21, getAbilityIconKey(manager.abilityType))
         .setDisplaySize(22, 22)
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .text(x + 76, y + 7, formatRank(manager.rank), smallUiTextStyle(11, getRankColor(manager.rank)))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .text(x + 76, y + 23, formatAbilityType(manager.abilityType), smallUiTextStyle(10, "#bdd2d8"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
 
     if (manager.isAssigned && !assignedToDifferentShaft) {
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(x + 224, y + 14, "Assigned", smallUiTextStyle(11, "#95f0bd"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
@@ -1957,7 +2096,8 @@ export class MineScene extends Phaser.Scene {
     }
 
     if (assignedToDifferentShaft) {
-      container.add(
+      this.addManagerPanelObject(
+        container,
         this.add
           .text(x + 196, y + 7, `Shaft ${manager.assignedShaftId}`, smallUiTextStyle(10, "#95f0bd"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
@@ -1980,7 +2120,8 @@ export class MineScene extends Phaser.Scene {
 
   private createHireOfferEntry(container: Phaser.GameObjects.Container, offer: ManagerHireOffer, x: number, y: number): void {
     this.createPanelCard(container, x, y, MANAGER_ENTRY_WIDTH, MANAGER_ENTRY_HEIGHT, offer.canAfford ? 0x1f323c : 0x332b2b, 0.96);
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .image(x + 22, y + 21, getManagerPortraitKey(offer.area, 'junior'))
         .setDisplaySize(34, 34)
@@ -1988,12 +2129,14 @@ export class MineScene extends Phaser.Scene {
         .setAlpha(offer.canAfford ? 1 : 0.68)
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .text(x + 70, y + 12, "Random draw + ability", smallUiTextStyle(11, "#ecf8fa"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
-    container.add(
+    this.addManagerPanelObject(
+      container,
       this.add
         .text(x + 76, y + 23, formatMoney(offer.hireCost), smallUiTextStyle(11, offer.canAfford ? "#f1d389" : "#f08e7f"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
@@ -2023,12 +2166,11 @@ export class MineScene extends Phaser.Scene {
     fill: number,
     fillAlpha: number
   ): Phaser.GameObjects.Graphics {
-    const graphics = this.add.graphics().setDepth(MANAGER_PANEL_DEPTH);
+    const graphics = this.addManagerPanelObject(container, this.add.graphics().setDepth(MANAGER_PANEL_DEPTH));
     graphics.fillStyle(fill, fillAlpha);
     graphics.fillRoundedRect(x, y, width, height, 10);
     graphics.lineStyle(1, 0xf1c96b, 0.26);
     graphics.strokeRoundedRect(x + 0.5, y + 0.5, width - 1, height - 1, 10);
-    container.add(graphics);
     return graphics;
   }
 
@@ -2045,27 +2187,34 @@ export class MineScene extends Phaser.Scene {
     enabledTint?: number
   ): void {
     const tint = enabledTint ?? (visualEnabled ? 0xffffff : 0x8c6c58);
-    const image = this.add
-      .image(x + width / 2, y + height / 2, "button-panel")
-      .setDisplaySize(width, height)
-      .setAlpha(visualEnabled ? 1 : 0.64)
-      .setTint(tint)
-      .setDepth(MANAGER_PANEL_TEXT_DEPTH);
-    const text = this.add
-      .text(x + width / 2, y + height / 2 - 1, label, smallUiTextStyle(11, visualEnabled ? "#fff8de" : "#e3c7aa"))
-      .setOrigin(0.5)
-      .setDepth(MANAGER_PANEL_TEXT_DEPTH);
-    const zone = this.add
-      .zone(x + width / 2, y + height / 2, width, height)
-      .setOrigin(0.5)
-      .setDepth(MANAGER_PANEL_INTERACTIVE_DEPTH);
+    const image = this.addManagerPanelObject(
+      container,
+      this.add
+        .image(x + width / 2, y + height / 2, "button-panel")
+        .setDisplaySize(width, height)
+        .setAlpha(visualEnabled ? 1 : 0.64)
+        .setTint(tint)
+        .setDepth(MANAGER_PANEL_TEXT_DEPTH)
+    );
+    const text = this.addManagerPanelObject(
+      container,
+      this.add
+        .text(x + width / 2, y + height / 2 - 1, label, smallUiTextStyle(11, visualEnabled ? "#fff8de" : "#e3c7aa"))
+        .setOrigin(0.5)
+        .setDepth(MANAGER_PANEL_TEXT_DEPTH)
+    );
+    const zone = this.addManagerPanelObject(
+      container,
+      this.add
+        .zone(x + width / 2, y + height / 2, width, height)
+        .setOrigin(0.5)
+        .setDepth(MANAGER_PANEL_INTERACTIVE_DEPTH)
+    );
 
     if (interactive) {
       zone.setInteractive({ useHandCursor: true });
       zone.on("pointerdown", handler);
     }
-
-    container.add([image, text, zone]);
   }
 
   private getManagerHireOffers(state: GameState, area: ManagerArea): ManagerHireOffer[] {
@@ -2186,6 +2335,23 @@ export class MineScene extends Phaser.Scene {
   private refreshSurfaceSidebarVisibility(): void {
     const visible = this.cameras.main.scrollY < SURFACE_SIDEBAR_HIDE_SCROLL_Y;
 
+    // Buy mode bar
+    this.buyModeBarPanel.setVisible(visible);
+    this.buyModeBarLabel.setVisible(visible);
+
+    for (const button of this.buyModeButtons) {
+      button.background.setVisible(visible);
+      button.label.setVisible(visible);
+      button.zone.setVisible(visible);
+
+      if (visible) {
+        button.zone.setInteractive({ useHandCursor: true });
+      } else {
+        button.zone.disableInteractive();
+      }
+    }
+
+    // Upgrade cards
     for (const card of Object.values(this.upgradeCards)) {
       const objects: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible> = [
         card.frame,
@@ -2215,6 +2381,7 @@ export class MineScene extends Phaser.Scene {
       }
     }
 
+    // Manager slots (warehouse / elevator)
     for (const slot of Object.values(this.managerSlots)) {
       const objects: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible> = [
         slot.frame,
@@ -2240,7 +2407,9 @@ export class MineScene extends Phaser.Scene {
     }
   }
 
-  private setMineShaftRowUnlocked(row: MineShaftRowUi, isUnlocked: boolean): void {
+  private setMineShaftRowMode(row: MineShaftRowUi, mode: "unlocked" | "locked" | "hidden"): void {
+    const isUnlocked = mode === "unlocked";
+    const isLocked = mode === "locked";
     const unlockedObjects = [
       row.backWall,
       row.floor,
@@ -2255,42 +2424,63 @@ export class MineScene extends Phaser.Scene {
       row.levelText,
       row.productionLabelText,
       row.productionCurrentText,
+      row.productionArrowImage,
       row.productionNextText,
       row.storageSummaryText,
       row.costText,
+      row.managerFrame,
+      row.managerTitleText,
       row.managerEmptySlotImage,
       row.managerPortraitImage,
       row.managerRankText,
       row.managerStatusText,
       row.managerTimerText,
       row.managerAbilityImage,
-      row.manualButtonImage,
-      row.manualButtonText,
+      row.managerAbilityZone,
+      row.managerSlotZone,
+      row.mineClickOutline,
+      row.mineClickChip,
+      row.mineClickZone,
       row.upgradeButtonImage,
-      row.upgradeButtonText
+      row.upgradeButtonText,
+      row.upgradeButtonZone
     ];
     const lockedObjects = [
       row.lockedPlaceholderFrame,
       row.lockedTitleText,
       row.lockedHintText,
       row.unlockButtonImage,
-      row.unlockButtonText
+      row.unlockButtonText,
+      row.unlockButtonZone
     ];
 
     unlockedObjects.forEach((object) => object.setVisible(isUnlocked));
-    lockedObjects.forEach((object) => object.setVisible(!isUnlocked));
+    lockedObjects.forEach((object) => object.setVisible(isLocked));
+    row.mineClickOutline.setStrokeStyle(2, 0xf1c96b, 0.14);
+    row.mineClickChip.setAlpha(0.74);
 
-    if (!isUnlocked) {
+    if (mode === "hidden") {
       row.routeText.setVisible(false);
       row.managerAbilityZone.disableInteractive();
       row.managerSlotZone.disableInteractive();
-      row.manualButtonZone.disableInteractive();
+      row.mineClickZone.disableInteractive();
+      row.upgradeButtonZone.disableInteractive();
+      row.unlockButtonZone.disableInteractive();
+      return;
+    }
+
+    if (mode === "locked") {
+      row.routeText.setVisible(false);
+      row.managerAbilityZone.disableInteractive();
+      row.managerSlotZone.disableInteractive();
+      row.mineClickZone.disableInteractive();
       row.upgradeButtonZone.disableInteractive();
       row.unlockButtonZone.setInteractive({ useHandCursor: true });
-    } else {
-      row.managerSlotZone.setInteractive({ useHandCursor: true });
-      row.unlockButtonZone.disableInteractive();
+      return;
     }
+
+    row.managerSlotZone.setInteractive({ useHandCursor: true });
+    row.unlockButtonZone.disableInteractive();
   }
 
   private drawMineShaftPanelFrame(row: MineShaftRowUi, automated: boolean, activeAbility: boolean): void {
@@ -2310,6 +2500,26 @@ export class MineScene extends Phaser.Scene {
     row.panelFrame.fillRoundedRect(UPGRADE_COLUMN_X + 12, top + 96, UPGRADE_CARD_WIDTH - 24, 60, 10);
     row.panelFrame.lineStyle(2, line, 0.92);
     row.panelFrame.strokeRoundedRect(UPGRADE_COLUMN_X + 1, top + 1, UPGRADE_CARD_WIDTH - 2, MINE_SHAFT_PANEL_HEIGHT - 2, 16);
+  }
+
+  private drawMineShaftManagerSlotFrame(
+    row: MineShaftRowUi,
+    automated: boolean,
+    locked: boolean,
+    activeAbility: boolean
+  ): void {
+    const fill = locked ? 0x1d2430 : automated ? 0x17382d : 0x273542;
+    const innerFill = activeAbility ? 0x62bf7b : automated ? 0x2a6b50 : 0x5c7c87;
+    const line = activeAbility ? 0xb5ff8d : automated ? 0x95f0bd : 0xf1c96b;
+
+    row.managerFrame.clear();
+    row.managerFrame.fillStyle(fill, locked ? 0.78 : 0.92);
+    row.managerFrame.fillRoundedRect(row.managerSlotX, row.managerSlotY, MANAGER_SLOT_WIDTH, MANAGER_SLOT_HEIGHT, 14);
+    row.managerFrame.fillStyle(innerFill, activeAbility ? 0.2 : 0.12);
+    row.managerFrame.fillRoundedRect(row.managerSlotX + 5, row.managerSlotY + 5, MANAGER_SLOT_WIDTH - 10, MANAGER_SLOT_HEIGHT - 10, 10);
+    row.managerFrame.lineStyle(1.5, line, locked ? 0.42 : 0.84);
+    row.managerFrame.strokeRoundedRect(row.managerSlotX + 0.75, row.managerSlotY + 0.75, MANAGER_SLOT_WIDTH - 1.5, MANAGER_SLOT_HEIGHT - 1.5, 14);
+    row.managerFrame.setAlpha(0.94);
   }
 
   private drawLockedShaftPlaceholder(row: MineShaftRowUi, canUnlock: boolean, previousUnlocked: boolean): void {
@@ -2366,10 +2576,51 @@ export class MineScene extends Phaser.Scene {
     }
   }
 
+  private setWorldClickTargetEnabled(
+    outline: Phaser.GameObjects.Rectangle,
+    chip: Phaser.GameObjects.Text,
+    zone: Phaser.GameObjects.Zone,
+    enabled: boolean
+  ): void {
+    outline.setStrokeStyle(2, 0xf1c96b, enabled ? 0.14 : 0.08);
+    chip.setAlpha(enabled ? 0.74 : 0.48);
+
+    if (enabled) {
+      zone.setInteractive({ useHandCursor: true });
+    } else {
+      zone.disableInteractive();
+    }
+
+    if (zone.input) {
+      zone.input.cursor = enabled ? "pointer" : "default";
+    }
+  }
+
   private refreshElevatorShaftVisual(state: GameState): void {
     const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
-    this.elevatorShaft.setDisplaySize(124, this.getElevatorShaftHeight(deepestUnlockedShaftId));
-    this.elevatorShaft.setY(this.getElevatorShaftCenterY(deepestUnlockedShaftId));
+    const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId);
+
+    this.elevatorShaftTop
+      .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_TOP_HEIGHT)
+      .setY(this.getElevatorShaftTopY(deepestUnlockedShaftId));
+    this.elevatorShaftBottom
+      .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_BOTTOM_HEIGHT)
+      .setY(this.getElevatorShaftBottomY(deepestUnlockedShaftId));
+
+    this.elevatorShaftMiddleSegments.forEach((segment, index) => {
+      segment
+        .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_MIDDLE_HEIGHT)
+        .setY(this.getElevatorShaftMiddleY(deepestUnlockedShaftId, index))
+        .setVisible(index < middleSegmentCount);
+    });
+
+    this.updateWorldClickTarget(
+      this.elevatorClickTarget,
+      392,
+      74,
+      132,
+      572 + this.getShaftOffset(deepestUnlockedShaftId)
+    );
   }
 
   private processElevatorRouteEvents(state: GameState, events: SimulationEvent[]): void {
@@ -2381,27 +2632,23 @@ export class MineScene extends Phaser.Scene {
     if (routeStarted !== undefined) {
       this.elevatorAnimationQueue = [];
       this.activeElevatorAnimation = undefined;
-      this.elevatorCabin.setY(ELEVATOR_TOP_Y);
 
       for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
         this.shaftRouteFeedbackById[shaftId] = undefined;
       }
-
-      if (state.entities.mineShafts[1]?.isUnlocked) {
-        this.elevatorAnimationQueue.push({
-          targetY: this.getElevatorStopY(1),
-          durationMs: Math.max(220, routeStarted.tripTimeSeconds * 300)
-        });
-      }
     }
+
+    let queuedTargetY = this.activeElevatorAnimation?.targetY ?? this.elevatorAnimationQueue.at(-1)?.targetY ?? this.elevatorCabin.y;
 
     for (const event of events) {
       if (event.type === "elevatorArrivedAtShaft") {
+        const targetY = this.getElevatorStopY(event.shaftId);
         this.elevatorAnimationQueue.push({
-          targetY: this.getElevatorStopY(event.shaftId),
-          durationMs: 220,
+          targetY,
+          durationMs: Math.abs(targetY - queuedTargetY) < 4 ? 0 : Math.max(180, Math.round(Math.abs(targetY - queuedTargetY) * 1.35)),
           holdMs: 80
         });
+        queuedTargetY = targetY;
       }
 
       if (event.type === "elevatorLoadedFromShaft") {
@@ -2410,7 +2657,7 @@ export class MineScene extends Phaser.Scene {
           expiresAtSeconds: state.timeSeconds + 0.9
         };
         this.elevatorAnimationQueue.push({
-          targetY: this.getElevatorStopY(event.shaftId),
+          targetY: queuedTargetY,
           durationMs: 0,
           holdMs: 220
         });
@@ -2426,8 +2673,9 @@ export class MineScene extends Phaser.Scene {
       if (event.type === "elevatorRouteFinished") {
         this.elevatorAnimationQueue.push({
           targetY: ELEVATOR_TOP_Y,
-          durationMs: Math.max(240, state.currentValues.elevator.tripTimeSeconds * 320)
+          durationMs: Math.max(260, Math.round(Math.abs(queuedTargetY - ELEVATOR_TOP_Y) * 1.1))
         });
+        queuedTargetY = ELEVATOR_TOP_Y;
       }
     }
   }
@@ -2480,6 +2728,14 @@ export class MineScene extends Phaser.Scene {
 
   private pinUi<T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T): T {
     gameObject.setScrollFactor(0);
+    return gameObject;
+  }
+
+  private addManagerPanelObject<T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(
+    container: Phaser.GameObjects.Container,
+    gameObject: T
+  ): T {
+    container.add(this.pinUi(gameObject));
     return gameObject;
   }
 
