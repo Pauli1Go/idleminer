@@ -48,7 +48,7 @@
   },
   "mineShaftProduction": {
     "firstAdditionalShaftMultiplier": 10,
-    "additionalShaftBaseMultiplier": 9,
+    "additionalShaftBaseMultiplier": 14,
     "additionalShaftDecay": 0.85,
     "decayStartsAtShaft": 3,
     "notes": "Additional shafts are still more efficient than pushing only shaft 1, but no longer overpower elevator/warehouse at comparable upgrade prices."
