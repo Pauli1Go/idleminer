@@ -231,6 +231,7 @@ export class SimulationViewModel {
       this.lastWarehouseFeedback !== undefined && this.lastWarehouseFeedback.expiresAtSeconds > state.timeSeconds;
     const commandFeedbackVisible =
       this.lastCommandFeedback !== undefined && this.lastCommandFeedback.expiresAtSeconds > state.timeSeconds;
+    const warehouseVisibleStoredOre = getWarehouseVisibleStoredOre(warehouse, state.currentValues.warehouse, warehouseCycleRatio);
 
     return {
       miner: getMinerState(mineShaft.state, miningCycleRatio),
@@ -241,7 +242,7 @@ export class SimulationViewModel {
       warehouseWorker: getWarehouseWorkerState(warehouse.state, warehouseCycleRatio),
       warehouseWorkerPositionRatio: warehouse.state === "selling" ? getWarehouseWorkerTravelRatio(warehouseCycleRatio) : 0,
       warehouseWorkerFacingLeft: warehouse.state === "selling" && warehouseCycleRatio >= 0.35 && warehouseCycleRatio < 0.72,
-      warehousePile: getStorageState(ratio(warehouse.storedOre, warehouse.capacity)),
+      warehousePile: getStorageState(ratio(warehouseVisibleStoredOre, warehouse.capacity)),
       warehouseFeedback: {
         visible: warehouseFeedbackVisible,
         text: warehouseFeedbackVisible ? this.lastWarehouseFeedback?.text ?? "" : ""
@@ -304,6 +305,23 @@ function getWarehouseWorkerTravelRatio(progressRatio: number): number {
   }
 
   return 0;
+}
+
+function getWarehouseVisibleStoredOre(
+  warehouse: GameState["entities"]["warehouse"],
+  currentWarehouseValues: GameState["currentValues"]["warehouse"],
+  progressRatio: number
+): number {
+  if (warehouse.state !== "selling") {
+    return warehouse.storedOre;
+  }
+
+  if (progressRatio < 0.35) {
+    return warehouse.storedOre;
+  }
+
+  const reservedOre = Math.min(warehouse.storedOre, currentWarehouseValues.sellCapacityPerCycle);
+  return Math.max(0, warehouse.storedOre - reservedOre);
 }
 
 function getStorageState(fillRatio: number): StorageVisualState {
