@@ -834,7 +834,7 @@ export class MineScene extends Phaser.Scene {
         .setDisplaySize(32, 32)
         .setDepth(UI_TEXT_DEPTH)
     );
-    const costText = this.add.text(panelLeft + 48, panelTop + 116, "", smallUiTextStyle(13, "#5a3411")).setDepth(UI_TEXT_DEPTH);
+    const costText = this.add.text(panelLeft + 36, panelTop + 116, "", smallUiTextStyle(13, "#5a3411")).setDepth(UI_TEXT_DEPTH);
     const buyCountText = this.add
       .text(panelLeft + UPGRADE_CARD_WIDTH / 2 + UPGRADE_BUTTON_WIDTH / 2 + 12, panelTop + 116, "", smallUiTextStyle(11, "#7b4e1d"))
       .setOrigin(0, 0)
@@ -1246,7 +1246,7 @@ export class MineScene extends Phaser.Scene {
     decorations.push(this.pinUi(this.add.image(left + 18, top + 123, "coin-icon").setDisplaySize(32, 32).setDepth(PINNED_UI_TEXT_DEPTH)));
     const costText = this.pinUi(
       this.add
-        .text(left + 48, top + 116, "", smallUiTextStyle(13, "#5a3411"))
+        .text(left + 36, top + 116, "", smallUiTextStyle(13, "#5a3411"))
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     const buyCountText = this.pinUi(
@@ -1660,7 +1660,8 @@ export class MineScene extends Phaser.Scene {
       buyModeChanged ||
       eventTypes.has("moneyChanged") ||
       eventTypes.has("statsChanged") ||
-      eventTypes.has("upgradePurchased");
+      eventTypes.has("upgradePurchased") ||
+      eventTypes.has("mineShaftUnlocked");
     const managerStateChanged =
       refreshAll ||
       eventTypes.has("managerPurchased") ||
@@ -1681,7 +1682,7 @@ export class MineScene extends Phaser.Scene {
       this.moneyText.setText(formatMoney(state.money));
     }
 
-    if (refreshAll || eventTypes.has("statsChanged") || eventTypes.has("upgradePurchased")) {
+    if (refreshAll || eventTypes.has("statsChanged") || eventTypes.has("upgradePurchased") || eventTypes.has("mineShaftUnlocked")) {
       this.productionText.setText(formatProductionSummary(state));
       fitTextToWidth(this.productionText, FLOW_PANEL_WIDTH - 58, [12, 11, 10]);
     }
@@ -2807,7 +2808,9 @@ export class MineScene extends Phaser.Scene {
 
     if (active.durationMs > 0 && active.elapsedMs < active.durationMs) {
       active.elapsedMs = Math.min(active.durationMs, active.elapsedMs + deltaMs);
-      const progress = Phaser.Math.Easing.Cubic.Out(active.elapsedMs / active.durationMs);
+      // Quantize the animation to 10 FPS (100ms steps) to match the game's aesthetic
+      const visualElapsed = active.elapsedMs >= active.durationMs ? active.durationMs : Math.floor(active.elapsedMs / 100) * 100;
+      const progress = Phaser.Math.Easing.Cubic.Out(visualElapsed / active.durationMs);
       this.elevatorCabin.setY(Phaser.Math.Linear(active.startY, active.targetY, progress));
 
       if (active.elapsedMs < active.durationMs) {
