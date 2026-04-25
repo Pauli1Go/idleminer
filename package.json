@@ -1,0 +1,23 @@
+{
+  "name": "idle-miner-core-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "preview": "vite preview --host 127.0.0.1",
+    "debug:simulation": "node --experimental-strip-types src/debug/runSimulation.ts"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vite": "^6.3.0"
+  },
+  "engines": {
+    "node": ">=22.6"
+  }
+}
