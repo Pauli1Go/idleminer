@@ -24,8 +24,15 @@ export class SaveGameController {
     if (this.repository !== undefined && typeof window !== "undefined") {
       window.addEventListener("beforeunload", this.onLifecycleEvent);
       window.addEventListener("pagehide", this.onLifecycleEvent);
+      window.addEventListener("visibilitychange", this.onVisibilityChange);
     }
   }
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.hidden) {
+      this.flush();
+    }
+  };
 
   update(deltaSeconds: number): void {
     if (this.disposed || this.repository === undefined) {
@@ -68,6 +75,7 @@ export class SaveGameController {
     if (this.repository !== undefined && typeof window !== "undefined") {
       window.removeEventListener("beforeunload", this.onLifecycleEvent);
       window.removeEventListener("pagehide", this.onLifecycleEvent);
+      window.removeEventListener("visibilitychange", this.onVisibilityChange);
     }
   }
 

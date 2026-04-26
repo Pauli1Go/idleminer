@@ -490,6 +490,10 @@ export class MineScene extends Phaser.Scene {
   create(): void {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
     this.events.once(Phaser.Scenes.Events.DESTROY, this.handleShutdown, this);
+    
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    }
     this.cameras.main.setBounds(0, 0, GAME_WIDTH, this.worldHeight);
 
     this.createWorld();
@@ -600,8 +604,25 @@ export class MineScene extends Phaser.Scene {
   }
 
   private handleShutdown(): void {
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    }
     this.viewModel.dispose();
   }
+
+  private handleVisibilityChange = (): void => {
+    if (typeof document === "undefined") return;
+
+    if (document.hidden) {
+      // Game saved automatically by SaveGameController on hidden
+    } else {
+      // We became visible again, calculate offline progress
+      const result = this.viewModel.processOfflineProgress();
+      if (result !== null) {
+        this.showOfflineProgressModal(result);
+      }
+    }
+  };
 
   private createWorld(): void {
     this.add.image(GAME_WIDTH / 2, SURFACE_HEIGHT / 2, "background-surface").setDisplaySize(GAME_WIDTH, SURFACE_HEIGHT);

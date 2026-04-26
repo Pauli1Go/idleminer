@@ -183,6 +183,27 @@ export class SimulationViewModel {
     };
   }
 
+  processOfflineProgress(): OfflineProgressResult | null {
+    const lastSave = this.saveRepository?.load();
+    if (!lastSave) {
+      return null;
+    }
+
+    const result = this.simulation.applyOfflineProgress(lastSave.savedAt, Date.now());
+    if (result) {
+      this.offlineProgressResult = result;
+      // After applying offline progress, save again to avoid double counting if the user immediately refreshes
+      this.flushSave();
+      return result;
+    }
+
+    return null;
+  }
+
+  flushSave(): void {
+    this.saveController?.flush();
+  }
+
   dispose(): void {
     this.saveController?.dispose();
   }
