@@ -9,6 +9,11 @@ type EmitSimulationEvent = (event: SimulationEventInput) => void;
 export type ElevatorStartResult = { started: true; carriedOre: number } | { started: false; reason: "busy" | "noOre" | "warehouseFull" };
 
 export class Elevator {
+  /**
+   * Stats define the capacity and trip time.
+   * Note: Trip time is constant regardless of how many mine shafts are visited
+   * to ensure consistent production calculations (Throughput = Capacity / TripTime).
+   */
   stats: ElevatorStats;
 
   state: ElevatorState;

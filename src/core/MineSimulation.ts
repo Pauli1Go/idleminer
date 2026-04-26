@@ -1850,6 +1850,7 @@ export class MineSimulation {
     }
 
     this.tickManagerTimers(offlineSeconds, []);
+    this.updateBlockades(offlineSeconds, []);
 
     const assignedByShaft = this.getAssignedManagerIdsByShaft();
     const activeMineThroughput = this.mineShafts
