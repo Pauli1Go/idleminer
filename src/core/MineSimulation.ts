@@ -649,7 +649,8 @@ export class MineSimulation {
       this.money,
       shaft.stats.level,
       buyMode,
-      this.getUpgradeCostMultiplierForMineShaft(shaftId)
+      this.getUpgradeCostMultiplierForMineShaft(shaftId),
+      shaftId
     );
 
     if (!result.purchased) {
