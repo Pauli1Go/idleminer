@@ -13,6 +13,18 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
+      - name: Node.js installieren
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Projekt bauen (dist Ordner erstellen)
+        run: npm run build
+
       - name: SSH vorbereiten
         run: |
           mkdir -p ~/.ssh
