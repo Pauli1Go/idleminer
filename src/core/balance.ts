@@ -44,6 +44,7 @@ export interface BalanceConfig {
     additionalShaftBaseMultiplier: number;
     additionalShaftDecay: number;
     decayStartsAtShaft: number;
+    effectiveShaftMultipliers?: number[];
   };
   miner: {
     startingLevel: number;
@@ -103,8 +104,10 @@ export interface BalanceConfig {
       baseUpgradeCostForLevel2: number;
       costGrowthMultiplierPerLevel: number;
       milestoneCostSpikeMultiplier: number;
-      upgradeCostProductionScalingFactor: number;
-      upgradeCostShaftMultiplierMode: "formula" | "explicit";
+      upgradeCostProductionScalingFactor?: number;
+      fallbackUpgradeCostProductionScalingFactor?: number;
+      upgradeCostShaftMultiplierMode: "formula" | "explicit" | "explicitArray";
+      explicitShaftUpgradeCostMultipliers?: number[];
       explicitUpgradeCostMultipliers?: number[];
     };
     elevator: {
@@ -364,33 +367,46 @@ export function getMineShaftConfigEntries(balance: BalanceConfig): MineShaftConf
 }
 
 export function getMineShaftProductionMultiplier(balance: BalanceConfig, shaftId: number): number {
-  if (shaftId <= 1) return 1;
-  
-  const config = balance.mineShaftProduction;
-  if (shaftId === 2) return config.firstAdditionalShaftMultiplier;
-
-  // Previous multiplier calculation
-  const prevMultiplier = getMineShaftProductionMultiplier(balance, shaftId - 1);
-  const decayStart = config.decayStartsAtShaft;
-  const decayExponent = Math.max(0, shaftId - decayStart + 1);
-  
-  const multiplier = prevMultiplier * config.additionalShaftBaseMultiplier * config.additionalShaftDecay;
-  
-  return roundForState(multiplier);
+  return getShaftProductionMultiplier(balance, shaftId - 1);
 }
 
 export function getMineShaftUpgradeCostMultiplier(balance: BalanceConfig, shaftId: number): number {
   if (shaftId <= 1) return 1;
 
   const costConfig = balance.upgradeCosts.mineShaft;
-  if (costConfig.upgradeCostShaftMultiplierMode === "explicit" && costConfig.explicitUpgradeCostMultipliers) {
-    return costConfig.explicitUpgradeCostMultipliers[shaftId - 1] ?? 1;
+  const explicitMultipliers =
+    costConfig.explicitShaftUpgradeCostMultipliers ?? costConfig.explicitUpgradeCostMultipliers;
+
+  if (explicitMultipliers && costConfig.upgradeCostShaftMultiplierMode !== "formula") {
+    return roundForState(explicitMultipliers[shaftId - 1] ?? 1);
   }
 
-  // shaftUpgradeCostMultiplier = pow(productionMultiplier, upgradeCostProductionScalingFactor)
   const productionMultiplier = getMineShaftProductionMultiplier(balance, shaftId);
-  const scalingFactor = costConfig.upgradeCostProductionScalingFactor;
-  
+  const scalingFactor =
+    costConfig.fallbackUpgradeCostProductionScalingFactor ??
+    costConfig.upgradeCostProductionScalingFactor ??
+    1;
+
   return roundForState(Math.pow(productionMultiplier, scalingFactor));
 }
 
+function getShaftProductionMultiplier(balance: BalanceConfig, shaftIndex: number): number {
+  if (shaftIndex <= 0) return 1;
+
+  const config = balance.mineShaftProduction;
+  const explicitMultiplier = config.effectiveShaftMultipliers?.[shaftIndex];
+
+  if (explicitMultiplier !== undefined) {
+    return roundForState(explicitMultiplier);
+  }
+
+  if (shaftIndex === 1) {
+    return roundForState(config.firstAdditionalShaftMultiplier);
+  }
+
+  const previousMultiplier = getShaftProductionMultiplier(balance, shaftIndex - 1);
+  const decayExponent = Math.max(0, shaftIndex + 1 - config.decayStartsAtShaft);
+  const decayFactor = Math.pow(config.additionalShaftDecay, decayExponent);
+
+  return roundForState(previousMultiplier * config.additionalShaftBaseMultiplier * decayFactor);
+}

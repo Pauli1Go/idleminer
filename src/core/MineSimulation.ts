@@ -5,7 +5,6 @@ import {
   getMineShaftConfigEntries,
   getMineShaftProductionMultiplier,
   getMineShaftStats,
-  getMineShaftUpgradeCostMultiplier,
   getWarehouseStats,
   roundForState
 } from "./balance.ts";
@@ -1303,14 +1302,13 @@ export class MineSimulation {
   }
 
   private getUpgradeCostMultiplierForMineShaft(shaftId: number): number {
-    const shaftMultiplier = getMineShaftUpgradeCostMultiplier(this.balance, shaftId);
     const manager = this.getActiveAssignedMineManager(shaftId);
 
     if (manager?.abilityType === "upgradeCostReduction") {
-      return roundForState(shaftMultiplier * manager.costReductionMultiplier);
+      return manager.costReductionMultiplier;
     }
 
-    return shaftMultiplier;
+    return 1;
   }
 
   private getOwnedManagersSnapshot(): ManagerState[] {
@@ -1717,12 +1715,15 @@ export class MineSimulation {
       }
 
       if (manager.isAssigned && manager.isActive) {
+        const previousActiveTime = manager.remainingActiveTime;
         manager.remainingActiveTime = roundForState(Math.max(0, manager.remainingActiveTime - deltaSeconds));
 
         if (manager.remainingActiveTime <= EPSILON) {
           manager.isActive = false;
           manager.remainingActiveTime = 0;
-          manager.remainingCooldownTime = roundForState(manager.cooldownSeconds);
+          
+          const overshoot = Math.max(0, deltaSeconds - previousActiveTime);
+          manager.remainingCooldownTime = roundForState(Math.max(0, manager.cooldownSeconds - overshoot));
 
           this.emit(
             {
@@ -1732,13 +1733,23 @@ export class MineSimulation {
             events
           );
 
-          this.emit(
-            {
-              type: "managerCooldownStarted",
-              manager: normalizeManagerState(manager)
-            },
-            events
-          );
+          if (manager.remainingCooldownTime > EPSILON) {
+            this.emit(
+              {
+                type: "managerCooldownStarted",
+                manager: normalizeManagerState(manager)
+              },
+              events
+            );
+          } else {
+            this.emit(
+              {
+                type: "managerCooldownFinished",
+                manager: normalizeManagerState(manager)
+              },
+              events
+            );
+          }
 
           if (manager.area === "mineShaft" && manager.assignedShaftId !== null) {
             changedMineShafts.add(manager.assignedShaftId);
@@ -1785,6 +1796,8 @@ export class MineSimulation {
     if (offlineSeconds <= 0) {
       return null;
     }
+
+    this.tickManagerTimers(offlineSeconds, []);
 
     const assignedByShaft = this.getAssignedManagerIdsByShaft();
     const activeMineThroughput = this.mineShafts
