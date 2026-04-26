@@ -54,3 +54,15 @@ export function formatLargeNumber(value: number): string {
 export function formatCurrency(value: number): string {
   return "$" + formatLargeNumber(value);
 }
+
+/**
+ * Formats a duration as HHh MMm SSs.
+ */
+export function formatDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.ceil(seconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainingSeconds = safeSeconds % 60;
+
+  return `${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(remainingSeconds).padStart(2, "0")}s`;
+}

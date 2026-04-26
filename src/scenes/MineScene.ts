@@ -70,7 +70,7 @@ import {
   type UpgradeBuyMode,
   type UpgradeTarget
 } from "../core/index.ts";
-import { formatLargeNumber, formatCurrency } from "../core/formatters.ts";
+import { formatLargeNumber, formatCurrency, formatDuration } from "../core/formatters.ts";
 import { SimulationViewModel, type SimulationFrame } from "../game/SimulationViewModel.ts";
 
 const GAME_WIDTH = 1280;
@@ -110,9 +110,12 @@ const ELEVATOR_SHAFT_WIDTH = 124;
 const ELEVATOR_SHAFT_TOP_HEIGHT = MINE_SHAFT_VERTICAL_SPACING / 2;
 const ELEVATOR_SHAFT_MIDDLE_HEIGHT = MINE_SHAFT_VERTICAL_SPACING;
 const ELEVATOR_SHAFT_BOTTOM_HEIGHT = MINE_SHAFT_VERTICAL_SPACING / 2;
+const ELEVATOR_SHAFT_SURFACE_TOP_CENTER_Y = 239;
+const ELEVATOR_SHAFT_BOTTOM_CENTER_OFFSET = 35;
 const MINE_SHAFT_BACK_WALL_Y = 508;
 const MINE_SHAFT_BACK_WALL_WIDTH = 452;
-const MINE_SHAFT_BACK_WALL_HEIGHT = 226;
+const MINE_SHAFT_BACK_WALL_HEIGHT = 244;
+const MINE_SHAFT_BACK_WALL_VISUAL_OFFSET_Y = 9;
 const MINE_SHAFT_FLOOR_Y = 594;
 const MINE_SHAFT_FLOOR_WIDTH = 456;
 const MINE_SHAFT_FLOOR_HEIGHT = 152;
@@ -652,7 +655,7 @@ export class MineScene extends Phaser.Scene {
       this.elevatorShaftMiddleSegments.push(
         this.add
           .image(ELEVATOR_X, this.getElevatorShaftMiddleY(initialAccessibleShaftId, middleIndex), "elevator-shaft-middle")
-          .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_MIDDLE_HEIGHT)
+          .setDisplaySize(ELEVATOR_SHAFT_WIDTH, this.getElevatorShaftMiddleSegmentHeight(initialAccessibleShaftId))
           .setVisible(false)
       );
     }
@@ -936,45 +939,50 @@ export class MineScene extends Phaser.Scene {
   }
 
   private getElevatorMiddleSegmentCount(deepestAccessibleShaftId: number): number {
-    return Math.max(1, deepestAccessibleShaftId);
+    return Math.max(1, Math.ceil(this.getElevatorShaftMiddleHeight(deepestAccessibleShaftId) / ELEVATOR_SHAFT_MIDDLE_HEIGHT));
+  }
+
+  private getElevatorShaftMiddleHeight(deepestAccessibleShaftId: number): number {
+    const middleTopY = this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) + ELEVATOR_SHAFT_TOP_HEIGHT;
+    const middleBottomY = this.getElevatorShaftBottomY(deepestAccessibleShaftId) - ELEVATOR_SHAFT_BOTTOM_HEIGHT / 2;
+    return Math.max(ELEVATOR_SHAFT_MIDDLE_HEIGHT, middleBottomY - middleTopY);
+  }
+
+  private getElevatorShaftMiddleSegmentHeight(deepestAccessibleShaftId: number): number {
+    return this.getElevatorShaftMiddleHeight(deepestAccessibleShaftId) / this.getElevatorMiddleSegmentCount(deepestAccessibleShaftId);
   }
 
   private getElevatorShaftHeight(deepestAccessibleShaftId: number): number {
     return (
       ELEVATOR_SHAFT_TOP_HEIGHT +
-      this.getElevatorMiddleSegmentCount(deepestAccessibleShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT +
+      this.getElevatorShaftMiddleHeight(deepestAccessibleShaftId) +
       ELEVATOR_SHAFT_BOTTOM_HEIGHT
     );
   }
 
   private getElevatorShaftCenterY(deepestAccessibleShaftId: number): number {
-    return 398 + this.getShaftOffset(deepestAccessibleShaftId) / 2;
+    return this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) + this.getElevatorShaftHeight(deepestAccessibleShaftId) / 2;
   }
 
-  private getElevatorShaftTopEdgeY(deepestAccessibleShaftId: number): number {
-    return this.getElevatorShaftCenterY(deepestAccessibleShaftId) - this.getElevatorShaftHeight(deepestAccessibleShaftId) / 2;
+  private getElevatorShaftTopEdgeY(_deepestAccessibleShaftId: number): number {
+    return ELEVATOR_SHAFT_SURFACE_TOP_CENTER_Y - ELEVATOR_SHAFT_TOP_HEIGHT / 2;
   }
 
-  private getElevatorShaftTopY(deepestAccessibleShaftId: number): number {
-    return this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) + ELEVATOR_SHAFT_TOP_HEIGHT / 2;
+  private getElevatorShaftTopY(_deepestAccessibleShaftId: number): number {
+    return ELEVATOR_SHAFT_SURFACE_TOP_CENTER_Y;
   }
 
   private getElevatorShaftMiddleY(deepestAccessibleShaftId: number, middleIndex: number): number {
     return (
       this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) +
       ELEVATOR_SHAFT_TOP_HEIGHT +
-      ELEVATOR_SHAFT_MIDDLE_HEIGHT / 2 +
-      middleIndex * ELEVATOR_SHAFT_MIDDLE_HEIGHT
+      this.getElevatorShaftMiddleSegmentHeight(deepestAccessibleShaftId) / 2 +
+      middleIndex * this.getElevatorShaftMiddleSegmentHeight(deepestAccessibleShaftId)
     );
   }
 
   private getElevatorShaftBottomY(deepestAccessibleShaftId: number): number {
-    return (
-      this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) +
-      ELEVATOR_SHAFT_TOP_HEIGHT +
-      this.getElevatorMiddleSegmentCount(deepestAccessibleShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT +
-      ELEVATOR_SHAFT_BOTTOM_HEIGHT / 2
-    );
+    return this.getElevatorStopY(deepestAccessibleShaftId) - ELEVATOR_SHAFT_BOTTOM_CENTER_OFFSET;
   }
 
   private createMineShaftRow(shaftId: number): MineShaftRowUi {
@@ -994,7 +1002,7 @@ export class MineScene extends Phaser.Scene {
     const mineClickTop = backWallY - 84;
 
     const backWall = this.add
-      .image(MINE_SHAFT_CENTER_X, backWallY, "mine-shaft-back-wall")
+      .image(MINE_SHAFT_CENTER_X, backWallY + MINE_SHAFT_BACK_WALL_VISUAL_OFFSET_Y, "mine-shaft-back-wall")
       .setDisplaySize(MINE_SHAFT_BACK_WALL_WIDTH, MINE_SHAFT_BACK_WALL_HEIGHT);
     const floor = this.add
       .image(MINE_SHAFT_CENTER_X, floorY, "mine-shaft-floor")
@@ -3019,6 +3027,7 @@ export class MineScene extends Phaser.Scene {
   private refreshElevatorShaftVisual(state: GameState): void {
     const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
     const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId);
+    const middleSegmentHeight = this.getElevatorShaftMiddleSegmentHeight(deepestUnlockedShaftId);
 
     this.elevatorShaftTop
       .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_TOP_HEIGHT)
@@ -3029,7 +3038,7 @@ export class MineScene extends Phaser.Scene {
 
     this.elevatorShaftMiddleSegments.forEach((segment, index) => {
       segment
-        .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_MIDDLE_HEIGHT)
+        .setDisplaySize(ELEVATOR_SHAFT_WIDTH, middleSegmentHeight)
         .setY(this.getElevatorShaftMiddleY(deepestUnlockedShaftId, index))
         .setVisible(index < middleSegmentCount);
     });
@@ -3560,14 +3569,6 @@ function formatManagerTimer(manager: ManagerState): string {
   }
 
   return "Ability ready";
-}
-
-function formatDuration(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.ceil(seconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const remainingSeconds = safeSeconds % 60;
-
-  return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
 function fitTextToWidth(text: Phaser.GameObjects.Text, maxWidth: number, fontSizes: number[]): void {

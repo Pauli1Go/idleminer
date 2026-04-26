@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { formatLargeNumber } from "../src/core/formatters.ts";
+import { formatDuration, formatLargeNumber } from "../src/core/formatters.ts";
 
 test("formatLargeNumber - small values", () => {
   assert.strictEqual(formatLargeNumber(0), "0");
@@ -39,4 +39,12 @@ test("formatLargeNumber - deep alphabet values", () => {
   // exponent 4 -> aa (10^12)
   // exponent 30 -> ba (10^90)
   assert.strictEqual(formatLargeNumber(Math.pow(10, 90)), "1ba");
+});
+
+test("formatDuration - shows hours minutes and seconds", () => {
+  assert.strictEqual(formatDuration(0), "00h 00m 00s");
+  assert.strictEqual(formatDuration(59), "00h 00m 59s");
+  assert.strictEqual(formatDuration(60), "00h 01m 00s");
+  assert.strictEqual(formatDuration(3661), "01h 01m 01s");
+  assert.strictEqual(formatDuration(7325.1), "02h 02m 06s");
 });
