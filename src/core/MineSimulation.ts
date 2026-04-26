@@ -42,7 +42,7 @@ import type {
   SimulationEventInput,
   SimulationEventType
 } from "./events.ts";
-import type { GameState, MineShaftRuntimeState, OfflineProgressResult } from "./types.ts";
+import type { BlockadeRuntimeState, GameState, MineShaftRuntimeState, OfflineProgressResult } from "./types.ts";
 import {
   getUpgradePreview,
   purchaseUpgrade as purchaseSimulationUpgrade,

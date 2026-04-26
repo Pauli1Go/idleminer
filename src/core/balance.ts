@@ -36,7 +36,7 @@ export interface BalanceConfig {
   };
   mineShaftUnlock: {
     baseUnlockCostShaft2: number;
-    unlockCostMultiplierPerShaft: number;
+    unlockCostMultiplierPerShaft: number | null;
     explicitUnlockCosts: number[];
   };
   mineShaftProduction: {
@@ -368,7 +368,8 @@ export function getMineShaftConfigEntries(balance: BalanceConfig): MineShaftConf
       if (explicitCost !== undefined) {
         unlockCost = explicitCost;
       } else {
-        unlockCost = balance.mineShaftUnlock.baseUnlockCostShaft2 * Math.pow(balance.mineShaftUnlock.unlockCostMultiplierPerShaft, shaftId - 2);
+        const multiplier = balance.mineShaftUnlock.unlockCostMultiplierPerShaft ?? 1;
+        unlockCost = balance.mineShaftUnlock.baseUnlockCostShaft2 * Math.pow(multiplier, shaftId - 2);
       }
     }
 

@@ -206,7 +206,7 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state: upgradeStateV2ToV3_To_V4(state)
+      state: upgradeStateV4ToV5(state)
     };
   }
 

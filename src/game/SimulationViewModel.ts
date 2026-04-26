@@ -151,6 +151,10 @@ export class SimulationViewModel {
     return this.frameFromEvents(this.simulation.unlockMineShaft(shaftId));
   }
 
+  removeDepthBlockade(blockadeId: string): SimulationFrame {
+    return this.frameFromEvents(this.simulation.removeDepthBlockade(blockadeId));
+  }
+
   upgradeMineShaft(shaftId: number): SimulationFrame {
     return this.frameFromEvents(this.simulation.upgradeMineShaft(shaftId, this.buyMode));
   }

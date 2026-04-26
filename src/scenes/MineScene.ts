@@ -2,6 +2,12 @@ import Phaser from "phaser";
 
 import backgroundSurfaceUrl from "../../assets/backgrounds/background_surface_clean.png";
 import backgroundUndergroundUrl from "../../assets/backgrounds/background_underground_clean.png";
+import backgroundUndergroundDepth2Url from "../../assets/backgrounds/background_underground_deph_2.png";
+import backgroundUndergroundDepth3Url from "../../assets/backgrounds/background_underground_deph_3.png";
+import backgroundUndergroundDepth4Url from "../../assets/backgrounds/background_underground_deph_4.png";
+import backgroundUndergroundDepth5Url from "../../assets/backgrounds/background_underground_deph_5.png";
+import backgroundUndergroundDepth6Url from "../../assets/backgrounds/background_underground_deph_6.png";
+import stoneBlockadeUrl from "../../assets/backgrounds/stone_blockade.png";
 import minerCarryUrl from "../../assets/characters/miner_worker_carry_bag_level1.png";
 import minerDropUrl from "../../assets/characters/miner_worker_drop_bag_level1.png";
 import minerIdleUrl from "../../assets/characters/miner_worker_idle_level1.png";
@@ -70,6 +76,7 @@ import { SimulationViewModel, type SimulationFrame } from "../game/SimulationVie
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 720;
 const SURFACE_HEIGHT = 206;
+const SHAFTS_PER_DEPTH_GROUP = 5;
 
 const UI_FONT_FAMILY = '"Trebuchet MS", Verdana, sans-serif';
 const UI_PANEL_DEPTH = 20;
@@ -97,6 +104,7 @@ const ELEVATOR_BOTTOM_Y = 592;
 
 const MINE_SHAFT_CENTER_X = 742;
 const MINE_SHAFT_VERTICAL_SPACING = 212;
+const DEPTH_SECTION_WIDTH = GAME_WIDTH;
 const ELEVATOR_SHAFT_WIDTH = 124;
 const ELEVATOR_SHAFT_TOP_HEIGHT = MINE_SHAFT_VERTICAL_SPACING / 2;
 const ELEVATOR_SHAFT_MIDDLE_HEIGHT = MINE_SHAFT_VERTICAL_SPACING;
@@ -129,6 +137,10 @@ const LOCKED_SHAFT_PLACEHOLDER_WIDTH = 714;
 const LOCKED_SHAFT_PLACEHOLDER_HEIGHT = 126;
 const LOCKED_SHAFT_BUTTON_WIDTH = 168;
 const LOCKED_SHAFT_BUTTON_HEIGHT = 38;
+const DEPTH_BLOCKADE_IMAGE_WIDTH = 760;
+const DEPTH_BLOCKADE_IMAGE_HEIGHT = 156;
+const DEPTH_BLOCKADE_BUTTON_WIDTH = 188;
+const DEPTH_BLOCKADE_BUTTON_HEIGHT = 38;
 const MINE_MANAGER_SLOT_X = 148;
 const MINE_CLICK_TARGET_X = 518;
 const MINE_CLICK_TARGET_WIDTH = 448;
@@ -195,6 +207,12 @@ const managerSlotLayout = {
 const assetManifest = {
   "background-surface": backgroundSurfaceUrl,
   "background-underground": backgroundUndergroundUrl,
+  "background-underground-depth-2": backgroundUndergroundDepth2Url,
+  "background-underground-depth-3": backgroundUndergroundDepth3Url,
+  "background-underground-depth-4": backgroundUndergroundDepth4Url,
+  "background-underground-depth-5": backgroundUndergroundDepth5Url,
+  "background-underground-depth-6": backgroundUndergroundDepth6Url,
+  "stone-blockade": stoneBlockadeUrl,
   "elevator-tower": elevatorTowerUrl,
   "elevator-shaft-top": elevatorShaftTopUrl,
   "elevator-shaft-middle": elevatorShaftMiddleUrl,
@@ -372,6 +390,23 @@ interface ShaftRouteFeedback {
   expiresAtSeconds: number;
 }
 
+interface DepthSectionUi {
+  depthGroup: number;
+  background: Phaser.GameObjects.Image;
+}
+
+interface DepthBlockadeUi {
+  blockadeId: string;
+  afterShaftId: number;
+  unlocksShaftId: number;
+  image: Phaser.GameObjects.Image;
+  titleText: Phaser.GameObjects.Text;
+  hintText: Phaser.GameObjects.Text;
+  buttonImage: Phaser.GameObjects.Image;
+  buttonText: Phaser.GameObjects.Text;
+  buttonZone: Phaser.GameObjects.Zone;
+}
+
 interface ElevatorAnimationStep {
   targetY: number;
   durationMs: number;
@@ -386,6 +421,8 @@ export class MineScene extends Phaser.Scene {
   private readonly worldHeight: number;
 
   private mineShaftRows: Record<number, MineShaftRowUi> = {};
+  private depthSections: DepthSectionUi[] = [];
+  private depthBlockades: DepthBlockadeUi[] = [];
   private elevatorShaftTop!: Phaser.GameObjects.Image;
   private elevatorShaftBottom!: Phaser.GameObjects.Image;
   private elevatorShaftMiddleSegments: Phaser.GameObjects.Image[] = [];
@@ -430,7 +467,7 @@ export class MineScene extends Phaser.Scene {
   constructor(balance: BalanceConfig, saveRepository?: SaveGameRepository) {
     super("MineScene");
     this.balance = balance;
-    this.totalMineShafts = Math.min(5, Math.max(1, balance.mineShaft.totalMineShafts));
+    this.totalMineShafts = Math.max(1, balance.mineShaft.totalMineShafts);
     this.worldHeight = this.computeWorldHeight(this.totalMineShafts);
     this.saveRepository = saveRepository;
     this.viewModel = new SimulationViewModel(balance, { saveRepository });
@@ -451,6 +488,7 @@ export class MineScene extends Phaser.Scene {
     this.createSurfaceObjects();
     this.createElevator();
     this.createMineShaft();
+    this.createDepthBlockades();
     this.createClickTargets();
     this.createUi();
     this.applyFrame(this.viewModel.getInitialFrame(), 0);
@@ -559,9 +597,24 @@ export class MineScene extends Phaser.Scene {
 
   private createWorld(): void {
     this.add.image(GAME_WIDTH / 2, SURFACE_HEIGHT / 2, "background-surface").setDisplaySize(GAME_WIDTH, SURFACE_HEIGHT);
-    this.add
-      .image(GAME_WIDTH / 2, SURFACE_HEIGHT + (this.worldHeight - SURFACE_HEIGHT) / 2, "background-underground")
-      .setDisplaySize(GAME_WIDTH, this.worldHeight - SURFACE_HEIGHT);
+    this.depthSections = [];
+
+    const totalDepthGroups = this.getTotalDepthGroups();
+
+    for (let depthGroup = 1; depthGroup <= totalDepthGroups; depthGroup += 1) {
+      const topY = this.getDepthGroupTopY(depthGroup);
+      const bottomY = this.getDepthGroupBottomY(depthGroup);
+      const height = Math.max(1, bottomY - topY);
+      const background = this.add
+        .image(GAME_WIDTH / 2, topY + height / 2, getDepthBackgroundKey(depthGroup))
+        .setDisplaySize(DEPTH_SECTION_WIDTH, height)
+        .setVisible(depthGroup === 1);
+
+      this.depthSections.push({
+        depthGroup,
+        background
+      });
+    }
 
     this.add.rectangle(GAME_WIDTH / 2, SURFACE_HEIGHT, GAME_WIDTH, 8, 0x3d2b1d, 0.96);
     this.add.rectangle(GAME_WIDTH / 2, SURFACE_HEIGHT + 5, GAME_WIDTH, 3, 0xe7bb63, 0.38);
@@ -582,17 +635,18 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createElevator(): void {
+    const initialAccessibleShaftId = this.getDepthGroupEndShaft(1);
     this.elevatorShaftTop = this.add
-      .image(ELEVATOR_X, this.getElevatorShaftTopY(1), "elevator-shaft-top")
+      .image(ELEVATOR_X, this.getElevatorShaftTopY(initialAccessibleShaftId), "elevator-shaft-top")
       .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_TOP_HEIGHT);
     this.elevatorShaftBottom = this.add
-      .image(ELEVATOR_X, this.getElevatorShaftBottomY(1), "elevator-shaft-bottom")
+      .image(ELEVATOR_X, this.getElevatorShaftBottomY(initialAccessibleShaftId), "elevator-shaft-bottom")
       .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_BOTTOM_HEIGHT);
 
     for (let middleIndex = 0; middleIndex < this.getElevatorMiddleSegmentCount(this.totalMineShafts); middleIndex += 1) {
       this.elevatorShaftMiddleSegments.push(
         this.add
-          .image(ELEVATOR_X, this.getElevatorShaftMiddleY(1, middleIndex), "elevator-shaft-middle")
+          .image(ELEVATOR_X, this.getElevatorShaftMiddleY(initialAccessibleShaftId, middleIndex), "elevator-shaft-middle")
           .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_MIDDLE_HEIGHT)
           .setVisible(false)
       );
@@ -605,6 +659,60 @@ export class MineScene extends Phaser.Scene {
   private createMineShaft(): void {
     for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
       this.mineShaftRows[shaftId] = this.createMineShaftRow(shaftId);
+    }
+  }
+
+  private createDepthBlockades(): void {
+    this.depthBlockades = [];
+
+    for (const blockade of Object.values(this.viewModel.getInitialFrame().state.blockades)) {
+      const centerY = this.getBlockadeY(blockade.afterShaftId);
+      const image = this.add
+        .image(MINE_SHAFT_CENTER_X, centerY, "stone-blockade")
+        .setDisplaySize(DEPTH_BLOCKADE_IMAGE_WIDTH, DEPTH_BLOCKADE_IMAGE_HEIGHT)
+        .setVisible(false);
+      const titleText = this.add
+        .text(MINE_SHAFT_CENTER_X, centerY - 46, `Blockade ${blockade.afterShaftId}/${blockade.unlocksShaftId}`, feedbackTextStyle(14, "#f8e4b4"))
+        .setOrigin(0.5)
+        .setDepth(UI_TEXT_DEPTH)
+        .setVisible(false);
+      const hintText = this.add
+        .text(MINE_SHAFT_CENTER_X, centerY - 20, "", smallUiTextStyle(12, "#f7f1dd"))
+        .setOrigin(0.5)
+        .setDepth(UI_TEXT_DEPTH)
+        .setVisible(false);
+      const buttonImage = this.add
+        .image(MINE_SHAFT_CENTER_X, centerY + 22, "button-panel")
+        .setDisplaySize(DEPTH_BLOCKADE_BUTTON_WIDTH, DEPTH_BLOCKADE_BUTTON_HEIGHT)
+        .setDepth(UI_PANEL_DEPTH + 1)
+        .setVisible(false);
+      const buttonText = this.add
+        .text(MINE_SHAFT_CENTER_X, centerY + 21, "", smallUiTextStyle(13, "#fff8de"))
+        .setOrigin(0.5)
+        .setDepth(UI_TEXT_DEPTH)
+        .setVisible(false);
+      const buttonZone = this.add
+        .zone(MINE_SHAFT_CENTER_X, centerY + 22, DEPTH_BLOCKADE_BUTTON_WIDTH, DEPTH_BLOCKADE_BUTTON_HEIGHT)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(UI_INTERACTIVE_DEPTH)
+        .setVisible(false);
+
+      buttonZone.on("pointerdown", () => {
+        this.applyFrame(this.viewModel.removeDepthBlockade(blockade.blockadeId), this.time.now);
+      });
+
+      this.depthBlockades.push({
+        blockadeId: blockade.blockadeId,
+        afterShaftId: blockade.afterShaftId,
+        unlocksShaftId: blockade.unlocksShaftId,
+        image,
+        titleText,
+        hintText,
+        buttonImage,
+        buttonText,
+        buttonZone
+      });
     }
   }
 
@@ -633,7 +741,8 @@ export class MineScene extends Phaser.Scene {
         return;
       }
 
-      const maxScroll = Math.max(0, this.worldHeight - GAME_HEIGHT);
+      const state = this.latestState;
+      const maxScroll = state === undefined ? 0 : this.getMaxCameraScroll(state);
       if (maxScroll <= 0) {
         return;
       }
@@ -683,11 +792,24 @@ export class MineScene extends Phaser.Scene {
   private computeWorldHeight(totalMineShafts: number): number {
     const lastShaftFloorBottom = this.getShaftY(MINE_SHAFT_FLOOR_Y + MINE_SHAFT_FLOOR_HEIGHT / 2, totalMineShafts);
     const lastPanelBottom = this.getMineShaftPanelTop(totalMineShafts) + MINE_SHAFT_PANEL_HEIGHT;
-    return Math.max(GAME_HEIGHT, Math.ceil(Math.max(lastShaftFloorBottom, lastPanelBottom) + WORLD_BOTTOM_PADDING));
+    const lastDepthBottom = this.getDepthGroupBottomY(this.getTotalDepthGroups());
+    return Math.max(GAME_HEIGHT, Math.ceil(Math.max(lastShaftFloorBottom, lastPanelBottom, lastDepthBottom) + WORLD_BOTTOM_PADDING));
   }
 
   private getShaftOffset(shaftId: number): number {
     return Math.max(0, shaftId - 1) * MINE_SHAFT_VERTICAL_SPACING;
+  }
+
+  private getTotalDepthGroups(): number {
+    return Math.max(1, Math.ceil(this.totalMineShafts / SHAFTS_PER_DEPTH_GROUP));
+  }
+
+  private getDepthGroupStartShaft(depthGroup: number): number {
+    return (depthGroup - 1) * SHAFTS_PER_DEPTH_GROUP + 1;
+  }
+
+  private getDepthGroupEndShaft(depthGroup: number): number {
+    return Math.min(this.totalMineShafts, depthGroup * SHAFTS_PER_DEPTH_GROUP);
   }
 
   private getShaftY(baseY: number, shaftId: number): number {
@@ -702,35 +824,121 @@ export class MineScene extends Phaser.Scene {
     return this.getShaftY(ELEVATOR_BOTTOM_Y, shaftId);
   }
 
-  private getElevatorMiddleSegmentCount(deepestUnlockedShaftId: number): number {
-    return deepestUnlockedShaftId + 1;
+  private getDepthGroupTopY(depthGroup: number): number {
+    if (depthGroup <= 1) {
+      return SURFACE_HEIGHT;
+    }
+
+    return this.getBlockadeY(this.getDepthGroupStartShaft(depthGroup) - 1);
   }
 
-  private getElevatorShaftHeight(deepestUnlockedShaftId: number): number {
-    return ELEVATOR_SHAFT_TOP_HEIGHT + this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT + ELEVATOR_SHAFT_BOTTOM_HEIGHT;
+  private getDepthGroupBottomY(depthGroup: number): number {
+    if (depthGroup >= this.getTotalDepthGroups()) {
+      return this.getShaftY(MINE_SHAFT_FLOOR_Y + MINE_SHAFT_FLOOR_HEIGHT / 2 + 56, this.getDepthGroupEndShaft(depthGroup));
+    }
+
+    return this.getBlockadeY(this.getDepthGroupEndShaft(depthGroup));
   }
 
-  private getElevatorShaftCenterY(deepestUnlockedShaftId: number): number {
-    return 498 + this.getShaftOffset(deepestUnlockedShaftId) / 2;
+  private getBlockadeY(afterShaftId: number): number {
+    return this.getShaftY(MINE_SHAFT_BACK_WALL_Y + MINE_SHAFT_VERTICAL_SPACING / 2, afterShaftId);
   }
 
-  private getElevatorShaftTopEdgeY(deepestUnlockedShaftId: number): number {
-    return this.getElevatorShaftCenterY(deepestUnlockedShaftId) - this.getElevatorShaftHeight(deepestUnlockedShaftId) / 2;
+  private getVisibleDepthGroupCount(state: GameState): number {
+    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
+    const deepestUnlockedDepthGroup = Math.floor((deepestUnlockedShaftId - 1) / SHAFTS_PER_DEPTH_GROUP) + 1;
+    const lastUnlockedShaftInDepthGroup = deepestUnlockedDepthGroup * SHAFTS_PER_DEPTH_GROUP;
+    const shouldRevealNextDepthGroup =
+      deepestUnlockedShaftId === lastUnlockedShaftInDepthGroup && deepestUnlockedShaftId < this.totalMineShafts;
+
+    return Math.min(this.getTotalDepthGroups(), deepestUnlockedDepthGroup + (shouldRevealNextDepthGroup ? 1 : 0));
   }
 
-  private getElevatorShaftTopY(deepestUnlockedShaftId: number): number {
-    return this.getElevatorShaftTopEdgeY(deepestUnlockedShaftId) + ELEVATOR_SHAFT_TOP_HEIGHT / 2;
+  private isDepthGroupVisible(state: GameState, depthGroup: number): boolean {
+    return depthGroup <= this.getVisibleDepthGroupCount(state);
   }
 
-  private getElevatorShaftMiddleY(deepestUnlockedShaftId: number, middleIndex: number): number {
-    return this.getElevatorShaftTopEdgeY(deepestUnlockedShaftId) + ELEVATOR_SHAFT_TOP_HEIGHT + ELEVATOR_SHAFT_MIDDLE_HEIGHT / 2 + middleIndex * ELEVATOR_SHAFT_MIDDLE_HEIGHT;
+  private isDepthGroupReachable(state: GameState, depthGroup: number): boolean {
+    if (depthGroup <= 1) {
+      return true;
+    }
+
+    const requiredBlockade = Object.values(state.blockades).find(
+      (blockade) => blockade.afterShaftId === this.getDepthGroupStartShaft(depthGroup) - 1
+    );
+
+    return requiredBlockade?.isRemoved ?? true;
   }
 
-  private getElevatorShaftBottomY(deepestUnlockedShaftId: number): number {
+  private getDeepestReachableVisibleShaftId(state: GameState): number {
+    let deepestReachableVisibleDepthGroup = 1;
+
+    for (let depthGroup = 1; depthGroup <= this.getVisibleDepthGroupCount(state); depthGroup += 1) {
+      if (!this.isDepthGroupReachable(state, depthGroup)) {
+        break;
+      }
+
+      deepestReachableVisibleDepthGroup = depthGroup;
+    }
+
+    return this.getDepthGroupEndShaft(deepestReachableVisibleDepthGroup);
+  }
+
+  private getVisibleWorldHeight(state: GameState): number {
+    const visibleDepthGroupCount = this.getVisibleDepthGroupCount(state);
+    const visibleBottomY = this.getDepthGroupBottomY(visibleDepthGroupCount);
+    return Math.max(GAME_HEIGHT, Math.ceil(visibleBottomY));
+  }
+
+  private getMaxCameraScroll(state: GameState): number {
+    return Math.max(0, this.getVisibleWorldHeight(state) - GAME_HEIGHT);
+  }
+
+  private clampCameraScroll(state: GameState): void {
+    const visibleWorldHeight = this.getVisibleWorldHeight(state);
+    const maxScroll = this.getMaxCameraScroll(state);
+    this.cameras.main.setBounds(0, 0, GAME_WIDTH, visibleWorldHeight);
+    this.cameras.main.scrollY = Phaser.Math.Clamp(this.cameras.main.scrollY, 0, maxScroll);
+  }
+
+  private getElevatorMiddleSegmentCount(deepestAccessibleShaftId: number): number {
+    return deepestAccessibleShaftId + 1;
+  }
+
+  private getElevatorShaftHeight(deepestAccessibleShaftId: number): number {
     return (
-      this.getElevatorShaftTopEdgeY(deepestUnlockedShaftId) +
       ELEVATOR_SHAFT_TOP_HEIGHT +
-      this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT +
+      this.getElevatorMiddleSegmentCount(deepestAccessibleShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT +
+      ELEVATOR_SHAFT_BOTTOM_HEIGHT
+    );
+  }
+
+  private getElevatorShaftCenterY(deepestAccessibleShaftId: number): number {
+    return 498 + this.getShaftOffset(deepestAccessibleShaftId) / 2;
+  }
+
+  private getElevatorShaftTopEdgeY(deepestAccessibleShaftId: number): number {
+    return this.getElevatorShaftCenterY(deepestAccessibleShaftId) - this.getElevatorShaftHeight(deepestAccessibleShaftId) / 2;
+  }
+
+  private getElevatorShaftTopY(deepestAccessibleShaftId: number): number {
+    return this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) + ELEVATOR_SHAFT_TOP_HEIGHT / 2;
+  }
+
+  private getElevatorShaftMiddleY(deepestAccessibleShaftId: number, middleIndex: number): number {
+    return (
+      this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) +
+      ELEVATOR_SHAFT_TOP_HEIGHT +
+      ELEVATOR_SHAFT_MIDDLE_HEIGHT / 2 +
+      middleIndex * ELEVATOR_SHAFT_MIDDLE_HEIGHT
+    );
+  }
+
+  private getElevatorShaftBottomY(deepestAccessibleShaftId: number): number {
+    return (
+      this.getElevatorShaftTopEdgeY(deepestAccessibleShaftId) +
+      ELEVATOR_SHAFT_TOP_HEIGHT +
+      this.getElevatorMiddleSegmentCount(deepestAccessibleShaftId) * ELEVATOR_SHAFT_MIDDLE_HEIGHT +
       ELEVATOR_SHAFT_BOTTOM_HEIGHT / 2
     );
   }
@@ -1466,6 +1674,9 @@ export class MineScene extends Phaser.Scene {
     this.latestState = state;
 
     this.processElevatorRouteEvents(state, events);
+    this.refreshDepthSections(state);
+    this.refreshDepthBlockades(state);
+    this.clampCameraScroll(state);
     this.refreshElevatorShaftVisual(state);
     this.refreshMineShaftRows(state, visual, time);
     this.applyElevatorVisual(visual.elevatorCabin, visual.elevatorPositionRatio, state);
@@ -1483,9 +1694,6 @@ export class MineScene extends Phaser.Scene {
   }
 
   private refreshMineShaftRows(state: GameState, visual: SimulationFrame["visual"], time: number): void {
-    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
-    const nextLockedShaftId = deepestUnlockedShaftId < this.totalMineShafts ? deepestUnlockedShaftId + 1 : null;
-
     for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
       const row = this.mineShaftRows[shaftId];
       const shaftState = state.entities.mineShafts[shaftId];
@@ -1497,7 +1705,13 @@ export class MineScene extends Phaser.Scene {
       const routeFeedback = this.shaftRouteFeedbackById[shaftId];
       const previousUnlocked = shaftId === 1 || state.entities.mineShafts[shaftId - 1]?.isUnlocked === true;
       const canUnlock = previousUnlocked && state.money + Number.EPSILON >= shaftState.unlockCost;
-      const rowMode = shaftState.isUnlocked ? "unlocked" : shaftId === nextLockedShaftId ? "locked" : "hidden";
+      const depthGroupVisible = this.isDepthGroupVisible(state, shaftState.depthGroup);
+      const rowMode =
+        shaftState.isUnlocked
+          ? "unlocked"
+          : depthGroupVisible && shaftState.isReachable
+            ? "locked"
+            : "hidden";
 
       this.setMineShaftRowMode(row, rowMode);
 
@@ -1611,10 +1825,11 @@ export class MineScene extends Phaser.Scene {
 
   private applyElevatorVisual(loadState: "empty" | "loaded", positionRatio: number, state: GameState): void {
     const animating = this.activeElevatorAnimation !== undefined || this.elevatorAnimationQueue.length > 0;
+    const deepestAccessibleShaftId = this.getDeepestReachableVisibleShaftId(state);
 
     if (!animating) {
       if (state.entities.elevator.state === "moving") {
-        this.elevatorCabin.setY(Phaser.Math.Linear(ELEVATOR_TOP_Y, this.getElevatorStopY(1), positionRatio));
+        this.elevatorCabin.setY(Phaser.Math.Linear(ELEVATOR_TOP_Y, this.getElevatorStopY(deepestAccessibleShaftId), positionRatio));
       } else if (state.entities.elevator.state === "idle") {
         this.elevatorCabin.setY(ELEVATOR_TOP_Y);
       }
@@ -1707,6 +1922,51 @@ export class MineScene extends Phaser.Scene {
     this.refreshSurfaceSidebarVisibility();
     this.activeBuyMode = buyMode;
     this.uiInitialized = true;
+  }
+
+  private refreshDepthSections(state: GameState): void {
+    const visibleDepthGroupCount = this.getVisibleDepthGroupCount(state);
+
+    for (const section of this.depthSections) {
+      section.background.setVisible(section.depthGroup <= visibleDepthGroupCount);
+    }
+  }
+
+  private refreshDepthBlockades(state: GameState): void {
+    for (const ui of this.depthBlockades) {
+      const blockade = state.blockades[ui.blockadeId];
+      const nextDepthGroup = Math.floor((ui.unlocksShaftId - 1) / SHAFTS_PER_DEPTH_GROUP) + 1;
+      const visible = blockade !== undefined && !blockade.isRemoved && this.isDepthGroupVisible(state, nextDepthGroup);
+
+      ui.image.setVisible(visible);
+      ui.titleText.setVisible(visible);
+      ui.hintText.setVisible(visible);
+      ui.buttonImage.setVisible(visible);
+      ui.buttonText.setVisible(visible);
+      ui.buttonZone.setVisible(visible);
+
+      if (!visible || blockade === undefined) {
+        ui.buttonZone.disableInteractive();
+        continue;
+      }
+
+      const canAfford = state.money + Number.EPSILON >= blockade.removalCost;
+      const previousShaftUnlocked = state.entities.mineShafts[ui.afterShaftId]?.isUnlocked ?? false;
+      const enabled = previousShaftUnlocked && canAfford && !blockade.isRemoving;
+
+      ui.buttonText.setText(blockade.isRemoving ? "Removing..." : `Clear ${formatAmount(blockade.removalCost)}`);
+      ui.hintText.setText(
+        blockade.isRemoving
+          ? `Clearing: ${formatDuration(blockade.remainingRemovalSeconds)}`
+          : canAfford
+            ? "Remove the rockfall to reach the next depth."
+            : "Need more cash to clear this blockade."
+      );
+
+      fitTextToWidth(ui.buttonText, DEPTH_BLOCKADE_BUTTON_WIDTH - 22, [13, 12, 11, 10]);
+      fitTextToWidth(ui.hintText, 360, [12, 11, 10]);
+      this.setWorldButtonEnabled(ui.buttonImage, ui.buttonText, ui.buttonZone, enabled, true);
+    }
   }
 
   private refreshManagerSlots(state: GameState): void {
@@ -2694,20 +2954,20 @@ export class MineScene extends Phaser.Scene {
   }
 
   private refreshElevatorShaftVisual(state: GameState): void {
-    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
-    const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId);
+    const deepestAccessibleShaftId = this.getDeepestReachableVisibleShaftId(state);
+    const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestAccessibleShaftId);
 
     this.elevatorShaftTop
       .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_TOP_HEIGHT)
-      .setY(this.getElevatorShaftTopY(deepestUnlockedShaftId));
+      .setY(this.getElevatorShaftTopY(deepestAccessibleShaftId));
     this.elevatorShaftBottom
       .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_BOTTOM_HEIGHT)
-      .setY(this.getElevatorShaftBottomY(deepestUnlockedShaftId));
+      .setY(this.getElevatorShaftBottomY(deepestAccessibleShaftId));
 
     this.elevatorShaftMiddleSegments.forEach((segment, index) => {
       segment
         .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_MIDDLE_HEIGHT)
-        .setY(this.getElevatorShaftMiddleY(deepestUnlockedShaftId, index))
+        .setY(this.getElevatorShaftMiddleY(deepestAccessibleShaftId, index))
         .setVisible(index < middleSegmentCount);
     });
 
@@ -2716,7 +2976,7 @@ export class MineScene extends Phaser.Scene {
       392,
       74,
       132,
-      572 + this.getShaftOffset(deepestUnlockedShaftId)
+      572 + this.getShaftOffset(deepestAccessibleShaftId)
     );
   }
 
@@ -3011,6 +3271,23 @@ function formatProductionSummary(state: GameState): string {
 
 function formatRate(value: number): string {
   return `${formatAmount(value)}/s`;
+}
+
+function getDepthBackgroundKey(depthGroup: number): string {
+  switch (depthGroup) {
+    case 1:
+      return "background-underground";
+    case 2:
+      return "background-underground-depth-2";
+    case 3:
+      return "background-underground-depth-3";
+    case 4:
+      return "background-underground-depth-4";
+    case 5:
+      return "background-underground-depth-5";
+    default:
+      return "background-underground-depth-6";
+  }
 }
 
 function formatSpeedMultiplier(value: number): string {
