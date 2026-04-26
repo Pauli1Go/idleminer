@@ -1836,7 +1836,7 @@ export class MineSimulation {
     this.refreshShaftManagerMetadata();
   }
 
-  private applyOfflineProgress(savedAt: number, loadedAt: number): OfflineProgressResult | null {
+  public applyOfflineProgress(savedAt: number, loadedAt: number): OfflineProgressResult | null {
     const offlineMs = loadedAt - savedAt;
     let offlineSeconds = offlineMs > 0 ? offlineMs / 1000 : 0;
 
