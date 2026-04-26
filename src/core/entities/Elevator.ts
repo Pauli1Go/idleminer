@@ -47,7 +47,7 @@ export class Elevator {
       return { started: false, reason: "busy" };
     }
 
-    const totalAvailableOre = mineShafts.reduce((sum, shaft) => sum + (shaft.isUnlocked ? shaft.storedOre : 0), 0);
+    const totalAvailableOre = mineShafts.reduce((sum, shaft) => sum + (shaft.isUnlocked && shaft.isReachable ? shaft.storedOre : 0), 0);
 
     if (totalAvailableOre <= EPSILON) {
       return { started: false, reason: "noOre" };
@@ -103,7 +103,7 @@ export class Elevator {
         const sortedShafts = [...mineShafts].sort((a, b) => a.depthIndex - b.depthIndex);
 
         for (const shaft of sortedShafts) {
-          if (!shaft.isUnlocked) {
+          if (!shaft.isUnlocked || !shaft.isReachable) {
             continue;
           }
 
@@ -125,7 +125,7 @@ export class Elevator {
 
           if (shaft.storedOre <= EPSILON) {
             // Check if there is any ore in deeper shafts
-            const deeperOre = sortedShafts.some(s => s.depthIndex > shaft.depthIndex && s.isUnlocked && s.storedOre > EPSILON);
+            const deeperOre = sortedShafts.some(s => s.depthIndex > shaft.depthIndex && s.isUnlocked && s.isReachable && s.storedOre > EPSILON);
             if (!deeperOre) {
               emit({
                 type: "elevatorSkippedShaft",

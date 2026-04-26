@@ -4,7 +4,7 @@ import { countManagersByArea, getAssignedManagerIdForArea, normalizeManagerState
 import { isAbilityTypeValidForArea } from "./managers.ts";
 import type { ElevatorState, MineShaftState, WarehouseState } from "./types.ts";
 
-export const SAVEGAME_VERSION = 4 as const;
+export const SAVEGAME_VERSION = 5 as const;
 export const SAVEGAME_STORAGE_KEY = "idle-miner.savegame";
 
 export interface SaveGameStorageLike {
@@ -83,6 +83,16 @@ export interface SaveGameStateV3 extends Omit<SaveGameStateV2, "managers"> {
       remainingCooldownTime: number;
     } | null;
   }>;
+  blockades?: Array<{
+    blockadeId: string;
+    afterShaftId: number;
+    unlocksShaftId: number;
+    isRemoved: boolean;
+    removalCost: number;
+    removalDurationSeconds: number;
+    remainingRemovalSeconds: number;
+    isRemoving: boolean;
+  }>;
 }
 
 export interface SaveGameRecordV1 {
@@ -98,7 +108,7 @@ export interface SaveGameRecordV2 {
 }
 
 export interface SaveGameRecordV3 {
-  version: 4;
+  version: 4 | 5;
   savedAt: number;
   state: SaveGameStateV3;
 }
@@ -200,7 +210,7 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     };
   }
 
-  if (parsed.version === SAVEGAME_VERSION) {
+  if (parsed.version === 4 || parsed.version === SAVEGAME_VERSION) {
     const state = readStateV3(parsed.state);
 
     if (state === null) {
@@ -210,7 +220,7 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state
+      state: upgradeStateV4ToV5(state)
     };
   }
 
@@ -238,13 +248,13 @@ export function normalizeSaveGameRecord(saveGame: SaveGameRecordCompatible): Sav
     };
   }
 
-  if (saveGame.version === 4) {
+  if (saveGame.version === 4 || saveGame.version === 5) {
     const state = readStateV3(saveGame.state);
     if (state === null) return null;
     return {
       version: SAVEGAME_VERSION,
       savedAt: saveGame.savedAt,
-      state: upgradeStateV2ToV3_To_V4(state)
+      state: upgradeStateV4ToV5(state)
     };
   }
 
@@ -270,7 +280,8 @@ function readStateV3(value: unknown): SaveGameStateV3 | null {
   if (managers === null) return null;
   const mineShafts = readMineShaftsSection(value.mineShafts);
   if (mineShafts === null) return null;
-  return { ...shared, managers, mineShafts };
+  const blockades = readBlockadesSection(value.blockades);
+  return { ...shared, managers, mineShafts, blockades: blockades ?? undefined };
 }
 
 function readSharedState(value: unknown): SaveGameStateV1 | null {
@@ -347,8 +358,12 @@ function upgradeStateV2ToV3(state: SaveGameStateV2): SaveGameStateV3 {
   };
 }
 
-function upgradeStateV2ToV3_To_V4(state: SaveGameStateV3): SaveGameStateV3 {
-  return state;
+function upgradeStateV4ToV5(state: SaveGameStateV3): SaveGameStateV3 {
+  if (state.blockades) return state;
+  return {
+    ...state,
+    blockades: []
+  };
 }
 
 function readLevels(value: unknown): SaveGameStateV1["levels"] | null {
@@ -467,6 +482,37 @@ function readActiveManagerAbilityState(value: unknown): SaveGameStateV3["mineSha
   const remainingCooldownTime = readNonNegativeNumber(value.remainingCooldownTime);
   if (isActive === null || abilityType === undefined || remainingActiveTime === null || remainingCooldownTime === null) return null;
   return { isActive, abilityType, remainingActiveTime, remainingCooldownTime };
+}
+
+function readBlockadesSection(value: unknown): SaveGameStateV3["blockades"] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) return null;
+  const blockades: SaveGameStateV3["blockades"] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) return null;
+    const blockadeId = readString(entry.blockadeId);
+    const afterShaftId = readNonNegativeInteger(entry.afterShaftId);
+    const unlocksShaftId = readNonNegativeInteger(entry.unlocksShaftId);
+    const isRemoved = readBoolean(entry.isRemoved);
+    const removalCost = readNonNegativeNumber(entry.removalCost);
+    const removalDurationSeconds = readNonNegativeNumber(entry.removalDurationSeconds);
+    const remainingRemovalSeconds = readNonNegativeNumber(entry.remainingRemovalSeconds);
+    const isRemoving = readBoolean(entry.isRemoving);
+    
+    if (blockadeId === null || afterShaftId === null || unlocksShaftId === null || isRemoved === null || removalCost === null || removalDurationSeconds === null || remainingRemovalSeconds === null || isRemoving === null) return null;
+    
+    blockades.push({
+      blockadeId,
+      afterShaftId,
+      unlocksShaftId,
+      isRemoved,
+      removalCost,
+      removalDurationSeconds,
+      remainingRemovalSeconds,
+      isRemoving
+    });
+  }
+  return blockades;
 }
 
 function readHireCountsByArea(value: unknown): Record<ManagerArea, number> | null {

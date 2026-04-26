@@ -40,10 +40,14 @@ export interface BalanceConfig {
     explicitUnlockCosts: number[];
   };
   mineShaftProduction: {
-    firstAdditionalShaftMultiplier: number;
-    additionalShaftBaseMultiplier: number;
-    additionalShaftDecay: number;
-    decayStartsAtShaft: number;
+    mode?: "groupedBlockFormula" | "chain";
+    shaftBlockSize?: number;
+    withinBlockEffectiveMultipliers?: number[];
+    productionBlockMultiplier?: number;
+    firstAdditionalShaftMultiplier?: number;
+    additionalShaftBaseMultiplier?: number;
+    additionalShaftDecay?: number;
+    decayStartsAtShaft?: number;
     effectiveShaftMultipliers?: number[];
   };
   miner: {
@@ -106,7 +110,9 @@ export interface BalanceConfig {
       milestoneCostSpikeMultiplier: number;
       upgradeCostProductionScalingFactor?: number;
       fallbackUpgradeCostProductionScalingFactor?: number;
-      upgradeCostShaftMultiplierMode: "formula" | "explicit" | "explicitArray";
+      upgradeCostShaftMultiplierMode: "formula" | "explicit" | "explicitArray" | "groupedExplicitArray";
+      withinBlockUpgradeCostMultipliers?: number[];
+      upgradeCostBlockMultiplier?: number;
       explicitShaftUpgradeCostMultipliers?: number[];
       explicitUpgradeCostMultipliers?: number[];
     };
@@ -141,13 +147,27 @@ export interface BalanceConfig {
     };
   };
   normalManagerDrawChances: Record<ManagerRank, number> & { notes?: string };
+  mineShaftBlockades?: {
+    enabled: boolean;
+    blockadeEveryShafts: number;
+    blockades: Array<{
+      afterShaft: number;
+      unlocksShaft: number;
+      removalDurationSeconds: number;
+      removalDurationLabel: string;
+      removalCost: number;
+      requiresPreviousShaftUnlocked: boolean;
+    }>;
+  };
 }
 
 export interface MineShaftConfigEntry {
   shaftId: number;
   displayName: string;
   depthIndex: number;
+  depthGroup: number;
   isUnlocked: boolean;
+  isReachable: boolean;
   unlockCost: number;
   productionMultiplier: number;
   upgradeCostMultiplier: number;
@@ -352,11 +372,16 @@ export function getMineShaftConfigEntries(balance: BalanceConfig): MineShaftConf
       }
     }
 
+    const depthGroup = Math.floor((shaftId - 1) / 5) + 1;
+    const isReachable = depthGroup === 1;
+
     entries.push({
       shaftId,
       displayName: `Shaft ${shaftId}`,
       depthIndex: shaftId - 1,
+      depthGroup,
       isUnlocked,
+      isReachable,
       unlockCost,
       productionMultiplier: getMineShaftProductionMultiplier(balance, shaftId),
       upgradeCostMultiplier: getMineShaftUpgradeCostMultiplier(balance, shaftId)
@@ -377,7 +402,7 @@ export function getMineShaftUpgradeCostMultiplier(balance: BalanceConfig, shaftI
   const explicitMultipliers =
     costConfig.explicitShaftUpgradeCostMultipliers ?? costConfig.explicitUpgradeCostMultipliers;
 
-  if (explicitMultipliers && costConfig.upgradeCostShaftMultiplierMode !== "formula") {
+  if (explicitMultipliers && (costConfig.upgradeCostShaftMultiplierMode === "explicit" || costConfig.upgradeCostShaftMultiplierMode === "explicitArray" || costConfig.upgradeCostShaftMultiplierMode === "groupedExplicitArray")) {
     return roundForState(explicitMultipliers[shaftId - 1] ?? 1);
   }
 
@@ -400,13 +425,25 @@ function getShaftProductionMultiplier(balance: BalanceConfig, shaftIndex: number
     return roundForState(explicitMultiplier);
   }
 
+  if (config.mode === "groupedBlockFormula") {
+    const blockSize = config.shaftBlockSize || 5;
+    const withinBlockMultipliers = config.withinBlockEffectiveMultipliers || [1];
+    const blockMultiplier = config.productionBlockMultiplier || 1;
+    
+    const block = Math.floor(shaftIndex / blockSize);
+    const position = shaftIndex % blockSize;
+    
+    const multiplier = (withinBlockMultipliers[position] || 1) * Math.pow(blockMultiplier, block);
+    return roundForState(multiplier);
+  }
+
   if (shaftIndex === 1) {
-    return roundForState(config.firstAdditionalShaftMultiplier);
+    return roundForState(config.firstAdditionalShaftMultiplier || 1);
   }
 
   const previousMultiplier = getShaftProductionMultiplier(balance, shaftIndex - 1);
-  const decayExponent = Math.max(0, shaftIndex + 1 - config.decayStartsAtShaft);
-  const decayFactor = Math.pow(config.additionalShaftDecay, decayExponent);
+  const decayExponent = Math.max(0, shaftIndex + 1 - (config.decayStartsAtShaft || 1));
+  const decayFactor = Math.pow(config.additionalShaftDecay || 1, decayExponent);
 
-  return roundForState(previousMultiplier * config.additionalShaftBaseMultiplier * decayFactor);
+  return roundForState(previousMultiplier * (config.additionalShaftBaseMultiplier || 1) * decayFactor);
 }

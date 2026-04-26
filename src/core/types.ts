@@ -23,11 +23,24 @@ export interface UpgradePreviewState<Stats> {
   previewStats: Stats;
 }
 
+export interface BlockadeRuntimeState {
+  blockadeId: string;
+  afterShaftId: number;
+  unlocksShaftId: number;
+  isRemoved: boolean;
+  removalCost: number;
+  removalDurationSeconds: number;
+  remainingRemovalSeconds: number;
+  isRemoving: boolean;
+}
+
 export interface MineShaftRuntimeState {
   shaftId: number;
   displayName: string;
   depthIndex: number;
+  depthGroup: number;
   isUnlocked: boolean;
+  isReachable: boolean;
   unlockCost: number;
   level: number;
   productionMultiplier: number;
@@ -90,6 +103,7 @@ export interface GameState {
     mineShafts: Record<number, MineShaftStats>;
   };
   managers: ManagerSystemState;
+  blockades: Record<string, BlockadeRuntimeState>;
   entities: {
     mineShaft: MineShaftRuntimeState; // For compatibility
     elevator: {

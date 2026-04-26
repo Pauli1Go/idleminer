@@ -15,7 +15,8 @@ export type SimulationCommandName =
   | "unlockMineShaft"
   | "assignManager"
   | "unassignManager"
-  | "activateManagerAbility";
+  | "activateManagerAbility"
+  | "removeDepthBlockade";
 
 export type SimulationCommandRejectionReason =
   | "busy"
@@ -39,7 +40,13 @@ export type SimulationActionFailureReason =
   | "invalid_shaft"
   | "shaft_locked"
   | "already_unlocked"
-  | "previous_shaft_locked";
+  | "previous_shaft_locked"
+  | "depth_blockade_not_removed"
+  | "shaft_not_reachable"
+  | "blockade_not_reachable"
+  | "previous_depth_incomplete"
+  | "invalid_blockade"
+  | "already_removing";
 
 export type SimulationEvent =
   | {
@@ -301,6 +308,34 @@ export type SimulationEvent =
       automated: boolean;
       managerId: string | null;
       shaftId?: number;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "depthBlockadeRemovalStarted";
+      blockadeId: string;
+      removalCost: number;
+      durationSeconds: number;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "depthBlockadeRemoved";
+      blockadeId: string;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "shaftReachabilityChanged";
+      shaftId: number;
+      isReachable: boolean;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "shaftVisibilityChanged";
+      shaftId: number;
+      isVisible: boolean;
     };
 
 export type SimulationEventType = SimulationEvent["type"];

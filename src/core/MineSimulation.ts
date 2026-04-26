@@ -72,6 +72,7 @@ export class MineSimulation {
   private baseElevatorStats: ElevatorStats;
   private baseWarehouseStats: WarehouseStats;
   private ownedManagers: ManagerState[] = [];
+  private blockades: Record<string, BlockadeRuntimeState> = {};
 
   constructor(balance: BalanceConfig, options: MineSimulationOptions = {}) {
     assertValidBalance(balance);
@@ -95,6 +96,26 @@ export class MineSimulation {
 
     this.elevator = new Elevator(this.baseElevatorStats, balance.startingStorage.startingElevatorStoredOre);
     this.warehouse = new Warehouse(this.baseWarehouseStats, balance.startingStorage.startingWarehouseStoredOre);
+
+    this.initializeBlockades();
+  }
+
+  private initializeBlockades(): void {
+    if (this.balance.mineShaftBlockades?.enabled) {
+      for (const b of this.balance.mineShaftBlockades.blockades) {
+        const id = `blockade_${b.afterShaft}_${b.unlocksShaft}`;
+        this.blockades[id] = {
+          blockadeId: id,
+          afterShaftId: b.afterShaft,
+          unlocksShaftId: b.unlocksShaft,
+          isRemoved: false,
+          removalCost: b.removalCost,
+          removalDurationSeconds: b.removalDurationSeconds,
+          remainingRemovalSeconds: 0,
+          isRemoving: false
+        };
+      }
+    }
   }
 
   exportSaveGame(savedAt = Date.now()): SaveGameRecord {
@@ -147,6 +168,7 @@ export class MineSimulation {
               }
             : null
         })),
+        blockades: Object.values(this.blockades).map(b => ({ ...b })),
         entities: {
           mineShaft: {
             state: firstShaft.state,
@@ -230,7 +252,17 @@ export class MineSimulation {
       shaft.totalProducedOre = 0;
       shaft.assignedManagerId = saved?.assignedManagerId ?? null;
       shaft.activeManagerAbilityState = saved?.activeManagerAbilityState ?? null;
+      shaft.isReachable = this.isShaftReachable(shaft.shaftId);
     }
+
+    if (state.blockades) {
+      for (const b of state.blockades) {
+        if (this.blockades[b.blockadeId]) {
+          this.blockades[b.blockadeId] = { ...b };
+        }
+      }
+    }
+    this.syncReachability();
 
     this.mineShaft.totalProducedOre = roundForState(requireNonNegativeNumber(state.totals.producedOre, "state.totals.producedOre"));
 
@@ -336,6 +368,11 @@ export class MineSimulation {
 
     if (this.money + Number.EPSILON < shaft.unlockCost) {
       this.emitActionFailed("unlockMineShaft", "not_enough_money", "Not enough money to unlock.", events, shaftId);
+      return events;
+    }
+
+    if (!this.isShaftReachable(shaftId)) {
+      this.emitActionFailed("unlockMineShaft", "depth_blockade_not_removed", "The depth blockade is still in place.", events, shaftId);
       return events;
     }
 
@@ -643,6 +680,11 @@ export class MineSimulation {
       return events;
     }
 
+    if (!shaft.isReachable) {
+      this.emitActionFailed("upgradeMineShaft", "shaft_not_reachable", "This shaft is not reachable.", events, shaftId);
+      return events;
+    }
+
     const result = purchaseSimulationUpgrade(
       this.balance,
       "mineShaft",
@@ -842,7 +884,9 @@ export class MineSimulation {
         productionRate: shaft.stats.throughputPerSecond,
         productionCycleTime: shaft.stats.cycleTimeSeconds,
         assignedManagerId: shaft.assignedManagerId,
-        activeManagerAbilityState: shaft.activeManagerAbilityState
+        activeManagerAbilityState: shaft.activeManagerAbilityState,
+        depthGroup: shaft.depthGroup,
+        isReachable: shaft.isReachable
       };
     }
 
@@ -865,7 +909,7 @@ export class MineSimulation {
       this.getUpgradeCostMultiplierForArea("warehouse")
     );
 
-    return {
+    const state: GameState = {
       timeSeconds: roundForState(this.timeSeconds),
       money: roundForState(this.money),
       levels: {
@@ -935,6 +979,7 @@ export class MineSimulation {
         automationEnabledByArea: getAutomationEnabledByArea(this.ownedManagers),
         automationEnabledByShaft: this.getAutomationEnabledByShaft()
       },
+      blockades: { ...this.blockades },
       entities: {
         mineShaft: mineShaftEntities[1],
         mineShafts: mineShaftEntities,
@@ -952,6 +997,8 @@ export class MineSimulation {
         }
       }
     };
+
+    return state;
   }
 
   private createMineShaftEntity(definition: MineShaftConfigEntry): MineShaft {
@@ -968,7 +1015,9 @@ export class MineSimulation {
       isUnlocked: definition.isUnlocked,
       unlockCost: definition.unlockCost,
       productionMultiplier: definition.productionMultiplier,
-      upgradeCostMultiplier: definition.upgradeCostMultiplier
+      upgradeCostMultiplier: definition.upgradeCostMultiplier,
+      depthGroup: definition.depthGroup,
+      isReachable: definition.isReachable
     });
   }
 
@@ -985,6 +1034,8 @@ export class MineSimulation {
       shaft.update(deltaSeconds, emit);
       this.runAutomationForMineShaft(shaft, events);
     }
+
+    this.updateBlockades(deltaSeconds, events);
 
     const sales = this.warehouse.update(deltaSeconds, emit);
     this.runAutomationForWarehouse(events);
@@ -1887,6 +1938,131 @@ export class MineSimulation {
 
   private getTotalProducedOre(): number {
     return roundForState(this.mineShafts.reduce((sum, shaft) => sum + shaft.totalProducedOre, 0));
+  }
+
+  removeDepthBlockade(blockadeId: string): SimulationEvent[] {
+    const events: SimulationEvent[] = [];
+    const blockade = this.blockades[blockadeId];
+
+    if (!blockade) {
+      this.emitActionFailed("removeDepthBlockade", "invalid_blockade", "This blockade does not exist.", events);
+      return events;
+    }
+
+    if (blockade.isRemoved) {
+      this.emitActionFailed("removeDepthBlockade", "already_unlocked", "This blockade is already removed.", events);
+      return events;
+    }
+
+    if (blockade.isRemoving) {
+      this.emitActionFailed("removeDepthBlockade", "already_removing", "This blockade is already being removed.", events);
+      return events;
+    }
+
+    const previousShaft = this.getMineShaftById(blockade.afterShaftId);
+    if (previousShaft && !previousShaft.isUnlocked) {
+      this.emitActionFailed("removeDepthBlockade", "previous_shaft_locked", "You must unlock the previous shaft first.", events);
+      return events;
+    }
+
+    if (this.money + Number.EPSILON < blockade.removalCost) {
+      this.emitActionFailed("removeDepthBlockade", "not_enough_money", "Not enough money to remove blockade.", events);
+      return events;
+    }
+
+    const previousMoney = this.money;
+    this.money = roundForState(this.money - blockade.removalCost);
+    blockade.isRemoving = true;
+    blockade.remainingRemovalSeconds = blockade.removalDurationSeconds;
+
+    this.emit({
+      type: "depthBlockadeRemovalStarted",
+      blockadeId,
+      removalCost: blockade.removalCost,
+      durationSeconds: blockade.removalDurationSeconds
+    } as any, events);
+
+    this.emit({
+      type: "moneyChanged",
+      previousMoney,
+      currentMoney: this.money,
+      delta: roundForState(this.money - previousMoney)
+    }, events);
+
+    return events;
+  }
+
+  isDepthGroupVisible(depthGroup: number): boolean {
+    if (depthGroup <= 1) return true;
+    const blockadeAfterShaft = (depthGroup - 1) * 5;
+    const blockade = Object.values(this.blockades).find(b => b.afterShaftId === blockadeAfterShaft);
+    if (!blockade) return true;
+    
+    // Visible if previous group's last shaft is unlocked
+    const lastShaftOfPrevGroup = this.getMineShaftById(blockadeAfterShaft);
+    return lastShaftOfPrevGroup ? lastShaftOfPrevGroup.isUnlocked : false;
+  }
+
+  isDepthGroupReachable(depthGroup: number): boolean {
+    if (depthGroup <= 1) return true;
+    const blockadeAfterShaft = (depthGroup - 1) * 5;
+    const blockade = Object.values(this.blockades).find(b => b.afterShaftId === blockadeAfterShaft);
+    return blockade ? blockade.isRemoved : true;
+  }
+
+  isShaftVisibleForPurchase(shaftId: number): boolean {
+    const shaft = this.getMineShaftById(shaftId);
+    if (!shaft) return false;
+    
+    if (shaft.isUnlocked) return true;
+    
+    // First shaft of a group is visible if the blockade before it is removed or if it's group 1
+    if ((shaftId - 1) % 5 === 0) {
+      return this.isDepthGroupReachable(shaft.depthGroup);
+    }
+    
+    // Other shafts are visible if the previous shaft is unlocked
+    const previousShaft = this.getMineShaftById(shaftId - 1);
+    return previousShaft ? previousShaft.isUnlocked : false;
+  }
+
+  isShaftReachable(shaftId: number): boolean {
+    const shaft = this.getMineShaftById(shaftId);
+    if (!shaft) return false;
+    return this.isDepthGroupReachable(shaft.depthGroup);
+  }
+
+  private updateBlockades(deltaSeconds: number, events: SimulationEvent[]): void {
+    for (const blockade of Object.values(this.blockades)) {
+      if (blockade.isRemoving && !blockade.isRemoved) {
+        blockade.remainingRemovalSeconds = roundForState(Math.max(0, blockade.remainingRemovalSeconds - deltaSeconds));
+        if (blockade.remainingRemovalSeconds <= EPSILON) {
+          blockade.isRemoving = false;
+          blockade.isRemoved = true;
+          
+          this.emit({
+            type: "depthBlockadeRemoved",
+            blockadeId: blockade.blockadeId
+          } as any, events);
+          
+          this.syncReachability(events);
+        }
+      }
+    }
+  }
+
+  private syncReachability(events: SimulationEvent[] = []): void {
+    for (const shaft of this.mineShafts) {
+      const reachable = this.isShaftReachable(shaft.shaftId);
+      if (shaft.isReachable !== reachable) {
+        shaft.isReachable = reachable;
+        this.emit({
+          type: "shaftReachabilityChanged",
+          shaftId: shaft.shaftId,
+          isReachable: reachable
+        } as any, events);
+      }
+    }
   }
 }
 

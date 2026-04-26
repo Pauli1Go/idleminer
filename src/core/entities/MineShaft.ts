@@ -12,7 +12,9 @@ export interface MineShaftDefinition {
   shaftId: number;
   displayName: string;
   depthIndex: number;
+  depthGroup: number;
   isUnlocked: boolean;
+  isReachable: boolean;
   unlockCost: number;
   productionMultiplier: number;
   upgradeCostMultiplier: number;
@@ -25,11 +27,13 @@ export class MineShaft {
   readonly shaftId: number;
   readonly displayName: string;
   readonly depthIndex: number;
+  readonly depthGroup: number;
   readonly unlockCost: number;
   readonly productionMultiplier: number;
   readonly upgradeCostMultiplier: number;
 
   isUnlocked: boolean;
+  isReachable: boolean;
   state: MineShaftState;
   storedOre: number;
   cycleProgressSeconds = 0;
@@ -50,11 +54,13 @@ export class MineShaft {
     this.shaftId = definition.shaftId;
     this.displayName = definition.displayName;
     this.depthIndex = definition.depthIndex;
+    this.depthGroup = definition.depthGroup;
     this.unlockCost = definition.unlockCost;
     this.productionMultiplier = definition.productionMultiplier;
     this.upgradeCostMultiplier = definition.upgradeCostMultiplier;
 
     this.isUnlocked = definition.isUnlocked;
+    this.isReachable = definition.isReachable;
     this.storedOre = this.isUnlocked ? clampToCapacity(startingStoredOre, stats.bufferCapacity) : 0;
     this.state = this.resolveIdleState();
   }
