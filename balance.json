@@ -37,21 +37,21 @@
   },
   "mineShaftUnlock": {
     "baseUnlockCostShaft2": 2500000,
-    "unlockCostMultiplierPerShaft": 80,
+    "unlockCostMultiplierPerShaft": 60,
     "explicitUnlockCosts": [
       2500000,
       150000000,
       9000000000,
       500000000000
     ],
-    "notes": "Rebalanced so additional shafts unlock after elevator/warehouse have meaningful capacity, not immediately after the first shaft starts producing."
+    "notes": "Delayed unlocks for shafts 2-5. These values intentionally give transport time to scale before each new cumulative shaft jump."
   },
   "mineShaftProduction": {
-    "firstAdditionalShaftMultiplier": 10,
-    "additionalShaftBaseMultiplier": 9,
-    "additionalShaftDecay": 0.85,
+    "firstAdditionalShaftMultiplier": 6.0,
+    "additionalShaftBaseMultiplier": 2.2,
+    "additionalShaftDecay": 0.88,
     "decayStartsAtShaft": 3,
-    "notes": "Additional shafts are still more efficient than pushing only shaft 1, but no longer overpower elevator/warehouse at comparable upgrade prices."
+    "notes": "Multipliers are cumulative relative to the previous shaft. Effective shaft multipliers: shaft1=1x, shaft2=6x, shaft3=13.2x, shaft4=25.56x, shaft5=43.54x. Total at equal level is 89.2931x shaft1."
   },
   "miner": {
     "startingLevel": 1,
@@ -162,27 +162,27 @@
     "hireCountMultiplierByArea": 1.85
   },
   "upgradeCosts": {
-    "notes": "Rebalanced for multiple mine shafts with 2x milestone boosts. Additional shaft production multipliers are cost-scaled close to linearly, so a new shaft is only slightly cheaper for the same production instead of massively outperforming elevator/warehouse. Milestone cost spikes are cumulative per reached largeBoostLevel.",
+    "notes": "Multi-shaft rebalance with delayed shaft unlocks. Mine base upgrade cost remains 20. Additional shaft upgrade costs scale almost linearly with their production multiplier, so new shafts are a little more efficient but do not make transport upgrades obsolete. Transport base costs are slightly reduced so elevator/warehouse can keep up with the combined output of unlocked shafts.",
     "mineShaft": {
       "baseUpgradeCostForLevel2": 20.0,
-      "costGrowthMultiplierPerLevel": 1.093,
-      "milestoneCostSpikeMultiplier": 2.25,
-      "upgradeCostProductionScalingFactor": 0.95,
+      "costGrowthMultiplierPerLevel": 1.092,
+      "milestoneCostSpikeMultiplier": 3.0,
+      "upgradeCostProductionScalingFactor": 0.99,
       "upgradeCostShaftMultiplierMode": "formula"
     },
     "elevator": {
-      "baseUpgradeCostForLevel2": 120.0,
+      "baseUpgradeCostForLevel2": 80.0,
       "costGrowthMultiplierPerLevel": 1.1058741753571404,
       "milestoneCostSpikeMultiplier": 2.2
     },
     "warehouse": {
-      "baseUpgradeCostForLevel2": 120.0,
+      "baseUpgradeCostForLevel2": 80.0,
       "costGrowthMultiplierPerLevel": 1.1058741753571404,
       "milestoneCostSpikeMultiplier": 2.2
     }
   },
   "upgradeMultipliers": {
-    "notes": "Rebalanced prototype curve. Milestone boosts are 2x; per-level multipliers keep the previous end targets, while multi-shaft balancing is handled through mineShaftProduction and upgradeCosts.",
+    "notes": "2x milestone boost curve. Mine shaft 1 L800 remains approximately 8ah/s; elevator and warehouse L2400 remain approximately 1bg/s without managers. Multi-shaft output is controlled through cumulative shaft multipliers and shaft-cost scaling rather than changing the global per-level curve.",
     "mineShaft": {
       "oreProducedPerCycleMultiplierPerLevel": 1.0896178455688235,
       "oreBufferCapacityMultiplierPerLevel": 1.0896178455688235,

@@ -24,6 +24,7 @@ Das Spiel soll im Browser laufen und als kleiner, sauber strukturierter Prototyp
 - Keine Werbung.
 - Keine Multiplayer-Funktionen.
 - Keine komplexe Backend-Anbindung.
+- Alle Updates MÜSSEN backwards compatible sein und dürfen bestehende Speicherstände nicht kaputt machen.
 
 ## Empfohlener Tech Stack
 
