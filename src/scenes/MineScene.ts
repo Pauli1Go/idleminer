@@ -948,7 +948,7 @@ export class MineScene extends Phaser.Scene {
   }
 
   private getElevatorShaftCenterY(deepestAccessibleShaftId: number): number {
-    return 498 + this.getShaftOffset(deepestAccessibleShaftId) / 2;
+    return 398 + this.getShaftOffset(deepestAccessibleShaftId) / 2;
   }
 
   private getElevatorShaftTopEdgeY(deepestAccessibleShaftId: number): number {
