@@ -104,6 +104,7 @@ const ELEVATOR_BOTTOM_Y = 592;
 
 const MINE_SHAFT_CENTER_X = 742;
 const MINE_SHAFT_VERTICAL_SPACING = 212;
+const DEPTH_GROUP_VERTICAL_GAP = 180;
 const DEPTH_SECTION_WIDTH = GAME_WIDTH;
 const ELEVATOR_SHAFT_WIDTH = 124;
 const ELEVATOR_SHAFT_TOP_HEIGHT = MINE_SHAFT_VERTICAL_SPACING / 2;
@@ -137,10 +138,13 @@ const LOCKED_SHAFT_PLACEHOLDER_WIDTH = 714;
 const LOCKED_SHAFT_PLACEHOLDER_HEIGHT = 126;
 const LOCKED_SHAFT_BUTTON_WIDTH = 168;
 const LOCKED_SHAFT_BUTTON_HEIGHT = 38;
-const DEPTH_BLOCKADE_IMAGE_WIDTH = 760;
-const DEPTH_BLOCKADE_IMAGE_HEIGHT = 156;
+const DEPTH_BLOCKADE_IMAGE_WIDTH = GAME_WIDTH;
+const DEPTH_BLOCKADE_IMAGE_HEIGHT = 232;
 const DEPTH_BLOCKADE_BUTTON_WIDTH = 188;
 const DEPTH_BLOCKADE_BUTTON_HEIGHT = 38;
+const DEPTH_BLOCKADE_PANEL_WIDTH = 432;
+const DEPTH_BLOCKADE_PANEL_HEIGHT = 112;
+const DEPTH_BLOCKADE_CENTER_X = GAME_WIDTH / 2;
 const MINE_MANAGER_SLOT_X = 148;
 const MINE_CLICK_TARGET_X = 518;
 const MINE_CLICK_TARGET_WIDTH = 448;
@@ -400,6 +404,7 @@ interface DepthBlockadeUi {
   afterShaftId: number;
   unlocksShaftId: number;
   image: Phaser.GameObjects.Image;
+  panel: Phaser.GameObjects.Graphics;
   titleText: Phaser.GameObjects.Text;
   hintText: Phaser.GameObjects.Text;
   buttonImage: Phaser.GameObjects.Image;
@@ -668,34 +673,35 @@ export class MineScene extends Phaser.Scene {
     for (const blockade of Object.values(this.viewModel.getInitialFrame().state.blockades)) {
       const centerY = this.getBlockadeY(blockade.afterShaftId);
       const image = this.add
-        .image(MINE_SHAFT_CENTER_X, centerY, "stone-blockade")
+        .image(DEPTH_BLOCKADE_CENTER_X, centerY, "stone-blockade")
         .setDisplaySize(DEPTH_BLOCKADE_IMAGE_WIDTH, DEPTH_BLOCKADE_IMAGE_HEIGHT)
         .setVisible(false);
+      const panel = this.add.graphics().setDepth(UI_PANEL_DEPTH + 1).setVisible(false);
       const titleText = this.add
-        .text(MINE_SHAFT_CENTER_X, centerY - 46, `Blockade ${blockade.afterShaftId}/${blockade.unlocksShaftId}`, feedbackTextStyle(14, "#f8e4b4"))
+        .text(DEPTH_BLOCKADE_CENTER_X, centerY - 40, "Blockade", feedbackTextStyle(14, "#f8e4b4"))
         .setOrigin(0.5)
-        .setDepth(UI_TEXT_DEPTH)
+        .setDepth(UI_TEXT_DEPTH + 1)
         .setVisible(false);
       const hintText = this.add
-        .text(MINE_SHAFT_CENTER_X, centerY - 20, "", smallUiTextStyle(12, "#f7f1dd"))
+        .text(DEPTH_BLOCKADE_CENTER_X, centerY - 14, "", smallUiTextStyle(12, "#f7f1dd"))
         .setOrigin(0.5)
-        .setDepth(UI_TEXT_DEPTH)
+        .setDepth(UI_TEXT_DEPTH + 1)
         .setVisible(false);
       const buttonImage = this.add
-        .image(MINE_SHAFT_CENTER_X, centerY + 22, "button-panel")
+        .image(DEPTH_BLOCKADE_CENTER_X, centerY + 24, "button-panel")
         .setDisplaySize(DEPTH_BLOCKADE_BUTTON_WIDTH, DEPTH_BLOCKADE_BUTTON_HEIGHT)
-        .setDepth(UI_PANEL_DEPTH + 1)
+        .setDepth(UI_PANEL_DEPTH + 2)
         .setVisible(false);
       const buttonText = this.add
-        .text(MINE_SHAFT_CENTER_X, centerY + 21, "", smallUiTextStyle(13, "#fff8de"))
+        .text(DEPTH_BLOCKADE_CENTER_X, centerY + 23, "", smallUiTextStyle(13, "#fff8de"))
         .setOrigin(0.5)
-        .setDepth(UI_TEXT_DEPTH)
+        .setDepth(UI_TEXT_DEPTH + 2)
         .setVisible(false);
       const buttonZone = this.add
-        .zone(MINE_SHAFT_CENTER_X, centerY + 22, DEPTH_BLOCKADE_BUTTON_WIDTH, DEPTH_BLOCKADE_BUTTON_HEIGHT)
+        .zone(DEPTH_BLOCKADE_CENTER_X, centerY + 24, DEPTH_BLOCKADE_BUTTON_WIDTH, DEPTH_BLOCKADE_BUTTON_HEIGHT)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
-        .setDepth(UI_INTERACTIVE_DEPTH)
+        .setDepth(UI_INTERACTIVE_DEPTH + 1)
         .setVisible(false);
 
       buttonZone.on("pointerdown", () => {
@@ -707,6 +713,7 @@ export class MineScene extends Phaser.Scene {
         afterShaftId: blockade.afterShaftId,
         unlocksShaftId: blockade.unlocksShaftId,
         image,
+        panel,
         titleText,
         hintText,
         buttonImage,
@@ -797,7 +804,9 @@ export class MineScene extends Phaser.Scene {
   }
 
   private getShaftOffset(shaftId: number): number {
-    return Math.max(0, shaftId - 1) * MINE_SHAFT_VERTICAL_SPACING;
+    const zeroBasedIndex = Math.max(0, shaftId - 1);
+    const completedDepthGroups = Math.floor(zeroBasedIndex / SHAFTS_PER_DEPTH_GROUP);
+    return zeroBasedIndex * MINE_SHAFT_VERTICAL_SPACING + completedDepthGroups * DEPTH_GROUP_VERTICAL_GAP;
   }
 
   private getTotalDepthGroups(): number {
@@ -841,7 +850,10 @@ export class MineScene extends Phaser.Scene {
   }
 
   private getBlockadeY(afterShaftId: number): number {
-    return this.getShaftY(MINE_SHAFT_BACK_WALL_Y + MINE_SHAFT_VERTICAL_SPACING / 2, afterShaftId);
+    const nextShaftId = Math.min(this.totalMineShafts, afterShaftId + 1);
+    const currentY = this.getShaftY(MINE_SHAFT_BACK_WALL_Y, afterShaftId);
+    const nextY = this.getShaftY(MINE_SHAFT_BACK_WALL_Y, nextShaftId);
+    return (currentY + nextY) / 2;
   }
 
   private getVisibleDepthGroupCount(state: GameState): number {
@@ -890,6 +902,28 @@ export class MineScene extends Phaser.Scene {
     return Math.max(GAME_HEIGHT, Math.ceil(visibleBottomY));
   }
 
+  private getNextVisibleLockedShaftId(state: GameState): number | null {
+    for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
+      const shaft = state.entities.mineShafts[shaftId];
+      if (shaft === undefined || shaft.isUnlocked) {
+        continue;
+      }
+
+      const previousUnlocked = shaftId === 1 || state.entities.mineShafts[shaftId - 1]?.isUnlocked === true;
+      if (!previousUnlocked) {
+        return null;
+      }
+
+      if (!shaft.isReachable || !this.isDepthGroupVisible(state, shaft.depthGroup)) {
+        return null;
+      }
+
+      return shaftId;
+    }
+
+    return null;
+  }
+
   private getMaxCameraScroll(state: GameState): number {
     return Math.max(0, this.getVisibleWorldHeight(state) - GAME_HEIGHT);
   }
@@ -902,7 +936,7 @@ export class MineScene extends Phaser.Scene {
   }
 
   private getElevatorMiddleSegmentCount(deepestAccessibleShaftId: number): number {
-    return deepestAccessibleShaftId + 1;
+    return Math.max(1, deepestAccessibleShaftId);
   }
 
   private getElevatorShaftHeight(deepestAccessibleShaftId: number): number {
@@ -1694,6 +1728,8 @@ export class MineScene extends Phaser.Scene {
   }
 
   private refreshMineShaftRows(state: GameState, visual: SimulationFrame["visual"], time: number): void {
+    const nextVisibleLockedShaftId = this.getNextVisibleLockedShaftId(state);
+
     for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
       const row = this.mineShaftRows[shaftId];
       const shaftState = state.entities.mineShafts[shaftId];
@@ -1705,11 +1741,10 @@ export class MineScene extends Phaser.Scene {
       const routeFeedback = this.shaftRouteFeedbackById[shaftId];
       const previousUnlocked = shaftId === 1 || state.entities.mineShafts[shaftId - 1]?.isUnlocked === true;
       const canUnlock = previousUnlocked && state.money + Number.EPSILON >= shaftState.unlockCost;
-      const depthGroupVisible = this.isDepthGroupVisible(state, shaftState.depthGroup);
       const rowMode =
         shaftState.isUnlocked
           ? "unlocked"
-          : depthGroupVisible && shaftState.isReachable
+          : shaftId === nextVisibleLockedShaftId
             ? "locked"
             : "hidden";
 
@@ -1825,11 +1860,11 @@ export class MineScene extends Phaser.Scene {
 
   private applyElevatorVisual(loadState: "empty" | "loaded", positionRatio: number, state: GameState): void {
     const animating = this.activeElevatorAnimation !== undefined || this.elevatorAnimationQueue.length > 0;
-    const deepestAccessibleShaftId = this.getDeepestReachableVisibleShaftId(state);
+    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
 
     if (!animating) {
       if (state.entities.elevator.state === "moving") {
-        this.elevatorCabin.setY(Phaser.Math.Linear(ELEVATOR_TOP_Y, this.getElevatorStopY(deepestAccessibleShaftId), positionRatio));
+        this.elevatorCabin.setY(Phaser.Math.Linear(ELEVATOR_TOP_Y, this.getElevatorStopY(deepestUnlockedShaftId), positionRatio));
       } else if (state.entities.elevator.state === "idle") {
         this.elevatorCabin.setY(ELEVATOR_TOP_Y);
       }
@@ -1939,6 +1974,7 @@ export class MineScene extends Phaser.Scene {
       const visible = blockade !== undefined && !blockade.isRemoved && this.isDepthGroupVisible(state, nextDepthGroup);
 
       ui.image.setVisible(visible);
+      ui.panel.setVisible(visible);
       ui.titleText.setVisible(visible);
       ui.hintText.setVisible(visible);
       ui.buttonImage.setVisible(visible);
@@ -1946,6 +1982,7 @@ export class MineScene extends Phaser.Scene {
       ui.buttonZone.setVisible(visible);
 
       if (!visible || blockade === undefined) {
+        ui.panel.clear();
         ui.buttonZone.disableInteractive();
         continue;
       }
@@ -1963,8 +2000,34 @@ export class MineScene extends Phaser.Scene {
             : "Need more cash to clear this blockade."
       );
 
+      ui.panel.clear();
+      ui.panel.fillStyle(0x14222c, 0.94);
+      ui.panel.fillRoundedRect(
+        DEPTH_BLOCKADE_CENTER_X - DEPTH_BLOCKADE_PANEL_WIDTH / 2,
+        ui.image.y - DEPTH_BLOCKADE_PANEL_HEIGHT / 2,
+        DEPTH_BLOCKADE_PANEL_WIDTH,
+        DEPTH_BLOCKADE_PANEL_HEIGHT,
+        14
+      );
+      ui.panel.fillStyle(0x3b5360, 0.18);
+      ui.panel.fillRoundedRect(
+        DEPTH_BLOCKADE_CENTER_X - DEPTH_BLOCKADE_PANEL_WIDTH / 2 + 6,
+        ui.image.y - DEPTH_BLOCKADE_PANEL_HEIGHT / 2 + 6,
+        DEPTH_BLOCKADE_PANEL_WIDTH - 12,
+        DEPTH_BLOCKADE_PANEL_HEIGHT - 12,
+        10
+      );
+      ui.panel.lineStyle(2, 0xf1c96b, 0.86);
+      ui.panel.strokeRoundedRect(
+        DEPTH_BLOCKADE_CENTER_X - DEPTH_BLOCKADE_PANEL_WIDTH / 2 + 1,
+        ui.image.y - DEPTH_BLOCKADE_PANEL_HEIGHT / 2 + 1,
+        DEPTH_BLOCKADE_PANEL_WIDTH - 2,
+        DEPTH_BLOCKADE_PANEL_HEIGHT - 2,
+        14
+      );
+
       fitTextToWidth(ui.buttonText, DEPTH_BLOCKADE_BUTTON_WIDTH - 22, [13, 12, 11, 10]);
-      fitTextToWidth(ui.hintText, 360, [12, 11, 10]);
+      fitTextToWidth(ui.hintText, DEPTH_BLOCKADE_PANEL_WIDTH - 36, [12, 11, 10]);
       this.setWorldButtonEnabled(ui.buttonImage, ui.buttonText, ui.buttonZone, enabled, true);
     }
   }
@@ -2954,20 +3017,20 @@ export class MineScene extends Phaser.Scene {
   }
 
   private refreshElevatorShaftVisual(state: GameState): void {
-    const deepestAccessibleShaftId = this.getDeepestReachableVisibleShaftId(state);
-    const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestAccessibleShaftId);
+    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
+    const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId);
 
     this.elevatorShaftTop
       .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_TOP_HEIGHT)
-      .setY(this.getElevatorShaftTopY(deepestAccessibleShaftId));
+      .setY(this.getElevatorShaftTopY(deepestUnlockedShaftId));
     this.elevatorShaftBottom
       .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_BOTTOM_HEIGHT)
-      .setY(this.getElevatorShaftBottomY(deepestAccessibleShaftId));
+      .setY(this.getElevatorShaftBottomY(deepestUnlockedShaftId));
 
     this.elevatorShaftMiddleSegments.forEach((segment, index) => {
       segment
         .setDisplaySize(ELEVATOR_SHAFT_WIDTH, ELEVATOR_SHAFT_MIDDLE_HEIGHT)
-        .setY(this.getElevatorShaftMiddleY(deepestAccessibleShaftId, index))
+        .setY(this.getElevatorShaftMiddleY(deepestUnlockedShaftId, index))
         .setVisible(index < middleSegmentCount);
     });
 
@@ -2976,7 +3039,7 @@ export class MineScene extends Phaser.Scene {
       392,
       74,
       132,
-      572 + this.getShaftOffset(deepestAccessibleShaftId)
+      572 + this.getShaftOffset(deepestUnlockedShaftId)
     );
   }
 
