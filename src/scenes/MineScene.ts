@@ -506,7 +506,7 @@ export class MineScene extends Phaser.Scene {
     this.applyFrame(this.viewModel.getInitialFrame(), 0);
     this.advanceElevatorAnimation(0);
 
-    if (this.viewModel.offlineProgressResult !== null) {
+    if (this.viewModel.offlineProgressResult !== null && this.viewModel.offlineProgressResult.offlineSeconds >= 60) {
       this.showOfflineProgressModal(this.viewModel.offlineProgressResult);
     }
   }
@@ -618,7 +618,7 @@ export class MineScene extends Phaser.Scene {
     } else {
       // We became visible again, calculate offline progress
       const result = this.viewModel.processOfflineProgress();
-      if (result !== null) {
+      if (result !== null && result.offlineSeconds >= 60) {
         this.showOfflineProgressModal(result);
       }
     }
@@ -796,7 +796,8 @@ export class MineScene extends Phaser.Scene {
       return;
     }
 
-    const contentAreaHeight = MANAGER_PANEL_HEIGHT - 72;
+    const contentAreaHeight = (contentContainer as any).contentAreaHeight ?? (MANAGER_PANEL_HEIGHT - 72);
+    const contentAreaY = (contentContainer as any).contentAreaY ?? (MANAGER_PANEL_Y + 66);
     const totalContentHeight = (contentContainer as { totalContentHeight?: number }).totalContentHeight ?? 0;
     const maxScroll = Math.max(0, totalContentHeight - contentAreaHeight);
 
@@ -817,7 +818,7 @@ export class MineScene extends Phaser.Scene {
 
     const scrollPercent = -this.managerPanelScrollY / maxScroll;
     const scrollbarHeight = (scrollbar as { scrollbarHeight?: number }).scrollbarHeight ?? 0;
-    scrollbar.setY(MANAGER_PANEL_Y + 71 + scrollPercent * (contentAreaHeight - scrollbarHeight - 10));
+    scrollbar.setY(contentAreaY + 5 + scrollPercent * (contentAreaHeight - scrollbarHeight - 10));
   }
 
   private computeWorldHeight(totalMineShafts: number): number {
@@ -2218,29 +2219,14 @@ export class MineScene extends Phaser.Scene {
       }
     );
 
-    // Scrollable Content
-    const contentAreaX = MANAGER_PANEL_X + 6;
-    const contentAreaY = MANAGER_PANEL_Y + 66;
-    const contentAreaWidth = MANAGER_PANEL_WIDTH - 12;
-    const contentAreaHeight = MANAGER_PANEL_HEIGHT - 72;
-
-    const contentMaskShape = this.make.graphics({});
-    this.pinUi(contentMaskShape);
-    contentMaskShape.fillStyle(0xffffff);
-    contentMaskShape.fillRoundedRect(contentAreaX, contentAreaY, contentAreaWidth, contentAreaHeight, 14);
-    const contentMask = contentMaskShape.createGeometryMask();
-
-    const contentContainer = this.pinUi(this.add.container(0, this.managerPanelScrollY));
-    contentContainer.setMask(contentMask);
-    container.add(contentContainer);
-
+    // Fixed Header Content
     const assignedManager = area === "mineShaft" ? getAssignedManagerForShaft(state, shaftId ?? 1) : getAssignedManagerForArea(state, area);
     const assignedY = MANAGER_PANEL_Y + 78;
-    this.createAssignedManagerPanel(contentContainer, area, assignedManager, automated, assignedY, shaftId);
+    this.createAssignedManagerPanel(container, area, assignedManager, automated, assignedY, shaftId);
 
     let cursorY = assignedY + 132;
     this.addManagerPanelObject(
-      contentContainer,
+      container,
       this.add
         .text(MANAGER_PANEL_X + 22, cursorY, "Hire Offers", smallUiTextStyle(14, "#f9e9bb"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
@@ -2253,19 +2239,39 @@ export class MineScene extends Phaser.Scene {
       const row = Math.floor(index / 2);
       const x = MANAGER_PANEL_X + 22 + column * (MANAGER_ENTRY_WIDTH + MANAGER_ENTRY_GAP_X);
       const y = cursorY + row * (MANAGER_ENTRY_HEIGHT + MANAGER_ENTRY_GAP_Y);
-      this.createHireOfferEntry(contentContainer, offer, x, y);
+      this.createHireOfferEntry(container, offer, x, y);
     });
     cursorY += Math.ceil(offers.length / 2) * (MANAGER_ENTRY_HEIGHT + MANAGER_ENTRY_GAP_Y) + 14;
 
+    // Owned Managers Title (Fixed)
     const ownedManagers = state.managers.ownedManagers.filter((manager) => manager.area === area && manager.isOwned);
     this.addManagerPanelObject(
-      contentContainer,
+      container,
       this.add
         .text(MANAGER_PANEL_X + 22, cursorY, "Owned Managers", smallUiTextStyle(14, "#f9e9bb"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
     cursorY += 26;
 
+    // Scrollable Content (Owned Managers Entries)
+    const contentAreaX = MANAGER_PANEL_X + 6;
+    const scrollAreaY = cursorY;
+    const contentAreaWidth = MANAGER_PANEL_WIDTH - 12;
+    const scrollAreaHeight = (MANAGER_PANEL_Y + MANAGER_PANEL_HEIGHT - 6) - scrollAreaY;
+
+    const contentMaskShape = this.make.graphics({});
+    this.pinUi(contentMaskShape);
+    contentMaskShape.fillStyle(0xffffff);
+    contentMaskShape.fillRoundedRect(contentAreaX, scrollAreaY, contentAreaWidth, scrollAreaHeight, 14);
+    const contentMask = contentMaskShape.createGeometryMask();
+
+    const contentContainer = this.pinUi(this.add.container(0, 0));
+    contentContainer.setMask(contentMask);
+    container.add(contentContainer);
+    (contentContainer as any).contentAreaY = scrollAreaY;
+    (contentContainer as any).contentAreaHeight = scrollAreaHeight;
+
+    const ownedManagersListStartY = cursorY;
     if (ownedManagers.length === 0) {
       this.addManagerPanelObject(
         contentContainer,
@@ -2285,9 +2291,9 @@ export class MineScene extends Phaser.Scene {
       cursorY += Math.ceil(ownedManagers.length / 2) * (MANAGER_ENTRY_HEIGHT + MANAGER_ENTRY_GAP_Y);
     }
 
-    const totalContentHeight = cursorY - contentAreaY + 20;
+    const totalContentHeight = cursorY - ownedManagersListStartY + 20; 
     (contentContainer as any).totalContentHeight = totalContentHeight;
-    const maxScroll = Math.max(0, totalContentHeight - contentAreaHeight);
+    const maxScroll = Math.max(0, totalContentHeight - scrollAreaHeight);
 
     // Clamp scroll Y if content height changed
     this.managerPanelScrollY = Phaser.Math.Clamp(this.managerPanelScrollY, -maxScroll, 0);
@@ -2295,7 +2301,7 @@ export class MineScene extends Phaser.Scene {
 
     // Scrollbar
     if (maxScroll > 0) {
-      const scrollbarHeight = Math.max(30, (contentAreaHeight / totalContentHeight) * contentAreaHeight);
+      const scrollbarHeight = Math.max(30, (scrollAreaHeight / totalContentHeight) * scrollAreaHeight);
       const scrollbar = this.addManagerPanelObject(container, this.add.graphics());
       (scrollbar as any).isScrollbar = true;
       (scrollbar as any).scrollbarHeight = scrollbarHeight;
@@ -2303,7 +2309,7 @@ export class MineScene extends Phaser.Scene {
       scrollbar.fillRoundedRect(contentAreaX + contentAreaWidth - 10, 0, 4, scrollbarHeight, 2);
       
       const scrollPercent = -this.managerPanelScrollY / maxScroll;
-      scrollbar.setY(contentAreaY + 5 + scrollPercent * (contentAreaHeight - scrollbarHeight - 10));
+      scrollbar.setY(scrollAreaY + 5 + scrollPercent * (scrollAreaHeight - scrollbarHeight - 10));
     }
   }
 
