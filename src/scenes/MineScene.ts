@@ -1828,9 +1828,9 @@ export class MineScene extends Phaser.Scene {
       row.storageText.setText(`${formatAmount(shaftState.storedOre)} / ${formatAmount(shaftState.capacity)}`);
       row.titleText.setText(shaftState.displayName);
       row.levelText.setText(`Lvl ${preview.currentLevel}`);
-      row.mainCurrentText.setText(formatRate(state.currentValues.mineShafts[shaftId].throughputPerSecond));
+      row.mainCurrentText.setText(formatRate(state.baseValues.mineShafts[shaftId].throughputPerSecond));
       row.mainNextText.setText(preview.isMaxed ? "MAX" : formatRate(preview.previewStats.throughputPerSecond));
-      row.secondaryCurrentText.setText(formatAmount(shaftState.capacity));
+      row.secondaryCurrentText.setText(formatAmount(state.baseValues.mineShafts[shaftId].bufferCapacity));
       row.secondaryNextText.setText(preview.isMaxed ? "MAX" : formatAmount(preview.previewStats.bufferCapacity));
       row.costText.setText(preview.isMaxed ? "MAX" : formatAmount(preview.cost));
       row.buyCountText.setText(preview.isMaxed ? "" : `x${preview.levelsToBuy}`);
