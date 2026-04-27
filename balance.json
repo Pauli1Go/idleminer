@@ -21,7 +21,7 @@
     "totalMineShafts": 30,
     "startingLevel": 1,
     "maxLevelPerShaft": 800,
-    "oreBufferCapacity": 60,
+    "oreBufferCapacity": 600,
     "largeBoostLevels": [
       10,
       25,
@@ -136,7 +136,7 @@
   "warehouse": {
     "startingLevel": 1,
     "maxLevel": 2400,
-    "oreStorageCapacity": 144,
+    "oreStorageCapacity": 1440,
     "baseOreSoldPerCycle": 39,
     "notes": "Capacity and sold-per-cycle are prototype values; max levels are public Kolibri support values."
   },
