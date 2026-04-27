@@ -158,15 +158,15 @@ const MONEY_PANEL_X = 18;
 const MONEY_PANEL_Y = 14;
 const MONEY_PANEL_WIDTH = 172;
 const MONEY_PANEL_HEIGHT = 40;
-const FLOW_PANEL_X = 198;
+const FLOW_PANEL_X = 197;
 const FLOW_PANEL_Y = 14;
 const FLOW_PANEL_WIDTH = 394;
 const FLOW_PANEL_HEIGHT = 40;
 
 const UPGRADE_COLUMN_X = 972;
 const UPGRADE_COLUMN_WIDTH = 290;
-const BUY_MODE_BAR_Y = 16;
-const BUY_MODE_BAR_HEIGHT = 42;
+const BUY_MODE_BAR_Y = 14;
+const BUY_MODE_BAR_HEIGHT = 40;
 const BUY_MODE_BUTTON_WIDTH = 52;
 const BUY_MODE_BUTTON_HEIGHT = 30;
 const BUY_MODE_BUTTON_GAP = 3;
@@ -1493,13 +1493,13 @@ export class MineScene extends Phaser.Scene {
 
   private createMiniUpgradeCards(): void {
     const cardWidth = 180;
-    const cardHeight = 42;
-    const startX = FLOW_PANEL_X + FLOW_PANEL_WIDTH + 8; // ~600
-    const y = 10;
+    const cardHeight = 40;
+    const startX = FLOW_PANEL_X + FLOW_PANEL_WIDTH + 7; // ~598
+    const y = 14;
 
     this.miniUpgradeCards = {
       warehouse: this.createMiniUpgradeCard("warehouse", startX, y, cardWidth, cardHeight),
-      elevator: this.createMiniUpgradeCard("elevator", startX + cardWidth + 8, y, cardWidth, cardHeight)
+      elevator: this.createMiniUpgradeCard("elevator", startX + cardWidth + 7, y, cardWidth, cardHeight)
     };
   }
 
@@ -1512,7 +1512,7 @@ export class MineScene extends Phaser.Scene {
       innerFill: 0x5c7c87,
       innerAlpha: 0.16,
       line: 0xf1c96b,
-      radius: 12
+      radius: 16
     }).setDepth(PINNED_UI_PANEL_DEPTH));
     objects.push(bg);
 
