@@ -499,6 +499,7 @@ export class MineScene extends Phaser.Scene {
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", this.handleVisibilityChange);
     }
+    this.input.setTopOnly(true);
     this.cameras.main.setBounds(0, 0, GAME_WIDTH, this.worldHeight);
 
     this.createWorld();
@@ -765,15 +766,15 @@ export class MineScene extends Phaser.Scene {
     this.input.on("wheel", (_pointer: Phaser.Input.Pointer, _gameObjects: unknown, _deltaX: number, deltaY: number) => {
       const pointer = this.input.activePointer;
 
-      if (
-        this.activeManagerPanelArea !== null &&
-        this.managerPanel !== undefined &&
-        pointer.x >= MANAGER_PANEL_X &&
-        pointer.x <= MANAGER_PANEL_X + MANAGER_PANEL_WIDTH &&
-        pointer.y >= MANAGER_PANEL_Y &&
-        pointer.y <= MANAGER_PANEL_Y + MANAGER_PANEL_HEIGHT
-      ) {
-        this.scrollManagerPanel(deltaY);
+      if (this.activeManagerPanelArea !== null && this.managerPanel !== undefined) {
+        if (
+          pointer.x >= MANAGER_PANEL_X &&
+          pointer.x <= MANAGER_PANEL_X + MANAGER_PANEL_WIDTH &&
+          pointer.y >= MANAGER_PANEL_Y &&
+          pointer.y <= MANAGER_PANEL_Y + MANAGER_PANEL_HEIGHT
+        ) {
+          this.scrollManagerPanel(deltaY);
+        }
         return;
       }
 
@@ -1223,7 +1224,8 @@ export class MineScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
       .setDepth(UI_INTERACTIVE_DEPTH - 1);
 
-    managerSlotZone.on("pointerdown", () => {
+    managerSlotZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
       const state = this.latestState;
       if (state === undefined) {
         return;
@@ -1245,11 +1247,13 @@ export class MineScene extends Phaser.Scene {
       }
     );
 
-    upgradeButtonZone.on("pointerdown", () => {
+    upgradeButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
       this.applyFrame(this.viewModel.upgradeMineShaft(shaftId), this.time.now);
     });
 
-    unlockButtonZone.on("pointerdown", () => {
+    unlockButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
       this.applyFrame(this.viewModel.unlockMineShaft(shaftId), this.time.now);
     });
 
@@ -1653,7 +1657,8 @@ export class MineScene extends Phaser.Scene {
       slotZone
     };
 
-    slotZone.on("pointerdown", () => {
+    slotZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
       const state = this.latestState;
 
       if (state === undefined) {
@@ -2159,7 +2164,8 @@ export class MineScene extends Phaser.Scene {
         .setOrigin(0, 0)
         .setInteractive()
     );
-    backdrop.on("pointerdown", () => {
+    backdrop.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
       this.closeManagerPanel();
     });
 
@@ -2170,6 +2176,9 @@ export class MineScene extends Phaser.Scene {
         .rectangle(MANAGER_PANEL_X, MANAGER_PANEL_Y, MANAGER_PANEL_WIDTH, MANAGER_PANEL_HEIGHT, 0x000000, 0)
         .setOrigin(0, 0)
         .setInteractive()
+        .on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+          event.stopPropagation();
+        })
     );
 
     const panelFrame = this.addManagerPanelObject(container, this.add.graphics());
@@ -2272,7 +2281,8 @@ export class MineScene extends Phaser.Scene {
           underline.lineStyle(1, 0xf1c96b, 0.8);
           underline.strokeLineShape(new Phaser.Geom.Line(tabX, cursorY + tabBtn.height + 1, tabX + tabBtn.width, cursorY + tabBtn.height + 1));
         }
-        tabBtn.on("pointerdown", () => {
+        tabBtn.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+          event.stopPropagation();
           this.activeManagerAbilityTab = tab;
           this.rebuildManagerPanel(state);
         });
@@ -2460,7 +2470,8 @@ export class MineScene extends Phaser.Scene {
           .setDepth(MANAGER_PANEL_INTERACTIVE_DEPTH)
       );
 
-      abilityZone.on("pointerdown", () => {
+      abilityZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
         this.activateAssignedManagerAbility(area, shaftId ?? 1);
       });
 
@@ -2687,7 +2698,10 @@ export class MineScene extends Phaser.Scene {
 
     if (interactive) {
       zone.setInteractive({ useHandCursor: true });
-      zone.on("pointerdown", handler);
+      zone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        handler();
+      });
     }
   }
 
@@ -2778,7 +2792,8 @@ export class MineScene extends Phaser.Scene {
     this.setUpgradeCardEnabled(card, preview.canAfford && !preview.isMaxed);
 
     card.buttonZone.removeAllListeners("pointerdown");
-    card.buttonZone.on("pointerdown", () => {
+    card.buttonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
       if (!card.enabled) {
         return;
       }
