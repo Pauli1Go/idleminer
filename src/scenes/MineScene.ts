@@ -1495,7 +1495,7 @@ export class MineScene extends Phaser.Scene {
     const cardWidth = 180;
     const cardHeight = 42;
     const startX = FLOW_PANEL_X + FLOW_PANEL_WIDTH + 8; // ~600
-    const y = 14;
+    const y = 10;
 
     this.miniUpgradeCards = {
       warehouse: this.createMiniUpgradeCard("warehouse", startX, y, cardWidth, cardHeight),
@@ -1518,7 +1518,7 @@ export class MineScene extends Phaser.Scene {
 
     const titleText = this.pinUi(
       this.add
-        .text(x + 10, y + 10, target === "warehouse" ? "Warehouse" : "Elevator", smallUiTextStyle(12, "#f6e9ba"))
+        .text(x + 10, y + 11, target === "warehouse" ? "Warehouse" : "Elevator", smallUiTextStyle(12, "#f6e9ba"))
         .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
@@ -1526,7 +1526,7 @@ export class MineScene extends Phaser.Scene {
 
     const levelText = this.pinUi(
       this.add
-        .text(x + 10, y + 30, "Lvl 1", smallUiTextStyle(10, "#a4c2c9"))
+        .text(x + 10, y + 27, "Lvl 1", smallUiTextStyle(10, "#a4c2c9"))
         .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
@@ -1534,7 +1534,7 @@ export class MineScene extends Phaser.Scene {
 
     const coinIcon = this.pinUi(
       this.add
-        .image(x + 56, y + 30, "coin-icon")
+        .image(x + 56, y + 27, "coin-icon")
         .setDisplaySize(16, 16)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
@@ -1542,20 +1542,21 @@ export class MineScene extends Phaser.Scene {
 
     const costText = this.pinUi(
       this.add
-        .text(x + 68, y + 30, "100", smallUiTextStyle(11, "#fff8de"))
+        .text(x + 68, y + 27, "100", smallUiTextStyle(11, "#fff8de"))
         .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     objects.push(costText);
 
-    const buttonSize = 28;
-    const buttonX = x + width - 18;
+    const buttonWidth = 28;
+    const buttonHeight = 56;
+    const buttonX = x + width - 24;
     const buttonY = y + height / 2;
 
     const buttonBg = this.pinUi(
       this.add
         .image(buttonX, buttonY, "button-panel")
-        .setDisplaySize(buttonSize, buttonSize)
+        .setDisplaySize(buttonWidth, buttonHeight)
         .setDepth(PINNED_UI_PANEL_DEPTH + 1)
     );
     objects.push(buttonBg);
@@ -1563,14 +1564,14 @@ export class MineScene extends Phaser.Scene {
     const arrowIcon = this.pinUi(
       this.add
         .image(buttonX, buttonY, "upgrade-arrow-icon")
-        .setDisplaySize(16, 16)
+        .setDisplaySize(20, 20)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     objects.push(arrowIcon);
 
     const buttonZone = this.pinUi(
       this.add
-        .zone(buttonX, buttonY, buttonSize, buttonSize)
+        .zone(buttonX, buttonY, buttonWidth, buttonHeight)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
         .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
