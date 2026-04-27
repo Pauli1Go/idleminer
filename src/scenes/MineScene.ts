@@ -2174,6 +2174,15 @@ export class MineScene extends Phaser.Scene {
       this.closeManagerPanel();
     });
 
+    // Block clicks from passing through the panel to the backdrop
+    this.addManagerPanelObject(
+      container,
+      this.add
+        .rectangle(MANAGER_PANEL_X, MANAGER_PANEL_Y, MANAGER_PANEL_WIDTH, MANAGER_PANEL_HEIGHT, 0x000000, 0)
+        .setOrigin(0, 0)
+        .setInteractive()
+    );
+
     const panelFrame = this.addManagerPanelObject(container, this.add.graphics());
     panelFrame.fillStyle(0x14222c, 0.98);
     panelFrame.fillRoundedRect(MANAGER_PANEL_X, MANAGER_PANEL_Y, MANAGER_PANEL_WIDTH, MANAGER_PANEL_HEIGHT, 18);
