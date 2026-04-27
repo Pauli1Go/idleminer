@@ -271,6 +271,7 @@ const assetManifest = {
 
 interface MiniUpgradeCardUi {
   objects: Phaser.GameObjects.GameObject[];
+  titleText: Phaser.GameObjects.Text;
   levelText: Phaser.GameObjects.Text;
   costText: Phaser.GameObjects.Text;
   buttonZone: Phaser.GameObjects.Zone;
@@ -1507,18 +1508,18 @@ export class MineScene extends Phaser.Scene {
     const objects: Phaser.GameObjects.GameObject[] = [];
 
     const bg = this.pinUi(this.drawRoundedPanel(x, y, width, height, {
-      fill: 0x213b46,
-      fillAlpha: 0.9,
-      innerFill: 0x5c7c87,
-      innerAlpha: 0.16,
-      line: 0xf1c96b,
+      fill: 0xf4cb7d,
+      fillAlpha: 0.96,
+      innerFill: 0xffdf9a,
+      innerAlpha: 0.52,
+      line: 0x613212,
       radius: 16
     }).setDepth(PINNED_UI_PANEL_DEPTH));
     objects.push(bg);
 
     const titleText = this.pinUi(
       this.add
-        .text(x + 10, y + 11, target === "warehouse" ? "Warehouse" : "Elevator", smallUiTextStyle(12, "#f6e9ba"))
+        .text(x + 10, y + 11, target === "warehouse" ? "Warehouse" : "Elevator", smallUiTextStyle(12, "#4b2709"))
         .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
@@ -1526,7 +1527,7 @@ export class MineScene extends Phaser.Scene {
 
     const levelText = this.pinUi(
       this.add
-        .text(x + 10, y + 27, "Lvl 1", smallUiTextStyle(10, "#a4c2c9"))
+        .text(x + 10, y + 27, "Lvl 1", smallUiTextStyle(10, "#6e5531"))
         .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
@@ -1542,15 +1543,15 @@ export class MineScene extends Phaser.Scene {
 
     const costText = this.pinUi(
       this.add
-        .text(x + 68, y + 27, "100", smallUiTextStyle(11, "#fff8de"))
+        .text(x + 68, y + 27, "100", smallUiTextStyle(11, "#5a3411"))
         .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     objects.push(costText);
 
-    const buttonWidth = 28;
+    const buttonWidth = 56;
     const buttonHeight = 56;
-    const buttonX = x + width - 24;
+    const buttonX = x + width - 38;
     const buttonY = y + height / 2;
 
     const buttonBg = this.pinUi(
@@ -1607,6 +1608,7 @@ export class MineScene extends Phaser.Scene {
 
     return {
       objects,
+      titleText,
       levelText,
       costText,
       buttonZone,
@@ -2962,6 +2964,10 @@ export class MineScene extends Phaser.Scene {
   private refreshMiniUpgradeCard(target: "warehouse" | "elevator", card: MiniUpgradeCardUi, state: GameState): void {
     const preview = state.upgrades[target];
     
+    const countSuffix = preview.isMaxed ? "" : ` x${preview.levelsToBuy}`;
+    const baseTitle = target === "warehouse" ? "Warehouse" : "Elevator";
+    card.titleText.setText(`${baseTitle}${countSuffix}`);
+
     card.levelText.setText(`Lvl ${preview.currentLevel}`);
     card.costText.setText(preview.isMaxed ? "MAX" : formatLargeNumber(preview.cost));
     fitTextToWidth(card.costText, 80, [11, 10, 9]);
