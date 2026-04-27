@@ -471,6 +471,7 @@ export class MineScene extends Phaser.Scene {
   private lastManagerPanelRefreshSecond = -1;
   private uiInitialized = false;
   private activeBuyMode: UpgradeBuyMode = 1;
+  private activeManagerAbilityTab: ManagerAbilityType | "all" = "all";
 
   constructor(balance: BalanceConfig, saveRepository?: SaveGameRepository) {
     super("MineScene");
@@ -2128,6 +2129,7 @@ export class MineScene extends Phaser.Scene {
 
     this.activeManagerPanelArea = area;
     this.activeManagerPanelShaftId = area === "mineShaft" ? shaftId ?? 1 : null;
+    this.activeManagerAbilityTab = "all";
     this.managerPanelScrollY = 0;
     this.rebuildManagerPanel(state);
     this.lastManagerPanelRefreshSecond = Math.floor(state.timeSeconds);
@@ -2244,7 +2246,7 @@ export class MineScene extends Phaser.Scene {
     cursorY += Math.ceil(offers.length / 2) * (MANAGER_ENTRY_HEIGHT + MANAGER_ENTRY_GAP_Y) + 14;
 
     // Owned Managers Title (Fixed)
-    const ownedManagers = state.managers.ownedManagers.filter((manager) => manager.area === area && manager.isOwned);
+    const allOwnedManagersInArea = state.managers.ownedManagers.filter((manager) => manager.area === area && manager.isOwned);
     this.addManagerPanelObject(
       container,
       this.add
@@ -2252,6 +2254,38 @@ export class MineScene extends Phaser.Scene {
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
     cursorY += 26;
+
+    if (allOwnedManagersInArea.length > 15) {
+      const abilities = Array.from(new Set(allOwnedManagersInArea.map(m => m.abilityType))) as ManagerAbilityType[];
+      const tabs: (ManagerAbilityType | "all")[] = ["all", ...abilities];
+      
+      let tabX = MANAGER_PANEL_X + 22;
+      tabs.forEach(tab => {
+        const label = tab === "all" ? "All" : formatAbilityType(tab);
+        const isActive = this.activeManagerAbilityTab === tab;
+        const tabBtn = this.addManagerPanelObject(
+          container,
+          this.add.text(tabX, cursorY, label, smallUiTextStyle(11, isActive ? "#f1c96b" : "#bdd2d8"))
+            .setDepth(MANAGER_PANEL_TEXT_DEPTH)
+            .setInteractive({ useHandCursor: true })
+        );
+        if (isActive) {
+          const underline = this.addManagerPanelObject(container, this.add.graphics());
+          underline.lineStyle(1, 0xf1c96b, 0.8);
+          underline.strokeLineShape(new Phaser.Geom.Line(tabX, cursorY + tabBtn.height + 1, tabX + tabBtn.width, cursorY + tabBtn.height + 1));
+        }
+        tabBtn.on("pointerdown", () => {
+          this.activeManagerAbilityTab = tab;
+          this.rebuildManagerPanel(state);
+        });
+        tabX += tabBtn.width + 12;
+      });
+      cursorY += 24;
+    }
+
+    const ownedManagers = this.activeManagerAbilityTab === "all" 
+      ? allOwnedManagersInArea 
+      : allOwnedManagersInArea.filter(m => m.abilityType === this.activeManagerAbilityTab);
 
     // Scrollable Content (Owned Managers Entries)
     const contentAreaX = MANAGER_PANEL_X + 6;
