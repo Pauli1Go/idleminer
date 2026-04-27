@@ -2584,7 +2584,7 @@ export class MineScene extends Phaser.Scene {
       this.addManagerPanelObject(
         container,
         this.add
-          .text(x + 196, y + 7, `Shaft ${manager.assignedShaftId}`, smallUiTextStyle(10, "#95f0bd"))
+          .text(x + 165, y + 7, `Shaft ${manager.assignedShaftId}`, smallUiTextStyle(10, "#95f0bd"))
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
     }
