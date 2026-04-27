@@ -2283,9 +2283,25 @@ export class MineScene extends Phaser.Scene {
       cursorY += 24;
     }
 
-    const ownedManagers = this.activeManagerAbilityTab === "all" 
+    const rankWeights: Record<ManagerRank, number> = {
+      executive: 3,
+      senior: 2,
+      junior: 1
+    };
+
+    const ownedManagers = (this.activeManagerAbilityTab === "all" 
       ? allOwnedManagersInArea 
-      : allOwnedManagersInArea.filter(m => m.abilityType === this.activeManagerAbilityTab);
+      : allOwnedManagersInArea.filter(m => m.abilityType === this.activeManagerAbilityTab))
+      .sort((a, b) => {
+        if (a.isActive && !b.isActive) return -1;
+        if (!a.isActive && b.isActive) return 1;
+        
+        const weightA = rankWeights[a.rank];
+        const weightB = rankWeights[b.rank];
+        if (weightA !== weightB) return weightB - weightA;
+        
+        return a.id.localeCompare(b.id);
+      });
 
     // Scrollable Content (Owned Managers Entries)
     const contentAreaX = MANAGER_PANEL_X + 6;
