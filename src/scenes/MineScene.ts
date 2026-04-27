@@ -168,11 +168,11 @@ const UPGRADE_COLUMN_WIDTH = 290;
 const BUY_MODE_BAR_Y = 16;
 const BUY_MODE_BAR_HEIGHT = 42;
 const BUY_MODE_BUTTON_WIDTH = 52;
-const BUY_MODE_BUTTON_HEIGHT = 22;
+const BUY_MODE_BUTTON_HEIGHT = 30;
 const BUY_MODE_BUTTON_GAP = 3;
 const BUY_MODE_BUTTON_START_X = UPGRADE_COLUMN_X + 70;
-const BUY_MODE_BUTTON_Y = BUY_MODE_BAR_Y + 25;
-const BUY_MODE_BUTTON_LABEL_Y = BUY_MODE_BAR_Y + 10;
+const BUY_MODE_BUTTON_Y = BUY_MODE_BAR_Y + BUY_MODE_BAR_HEIGHT / 2;
+const BUY_MODE_BUTTON_LABEL_Y = BUY_MODE_BAR_Y + BUY_MODE_BAR_HEIGHT / 2;
 const BUY_MODE_BUTTON_LABEL_COLOR = "#fff8de";
 const UPGRADE_CARD_WIDTH = UPGRADE_COLUMN_WIDTH;
 const UPGRADE_CARD_HEIGHT = 146;
@@ -1392,6 +1392,7 @@ export class MineScene extends Phaser.Scene {
     this.buyModeBarLabel = this.pinUi(
       this.add
         .text(UPGRADE_COLUMN_X + 14, BUY_MODE_BUTTON_LABEL_Y, "Buy", smallUiTextStyle(12, "#f6e9ba"))
+        .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
 
@@ -2845,20 +2846,15 @@ export class MineScene extends Phaser.Scene {
   private refreshSurfaceSidebarVisibility(): void {
     const visible = this.cameras.main.scrollY < SURFACE_SIDEBAR_HIDE_SCROLL_Y;
 
-    // Buy mode bar
-    this.buyModeBarPanel.setVisible(visible);
-    this.buyModeBarLabel.setVisible(visible);
+    // Buy mode bar (always visible)
+    this.buyModeBarPanel.setVisible(true);
+    this.buyModeBarLabel.setVisible(true);
 
     for (const button of this.buyModeButtons) {
-      button.background.setVisible(visible);
-      button.label.setVisible(visible);
-      button.zone.setVisible(visible);
-
-      if (visible) {
-        button.zone.setInteractive({ useHandCursor: true });
-      } else {
-        button.zone.disableInteractive();
-      }
+      button.background.setVisible(true);
+      button.label.setVisible(true);
+      button.zone.setVisible(true);
+      button.zone.setInteractive({ useHandCursor: true });
     }
 
     // Upgrade cards
