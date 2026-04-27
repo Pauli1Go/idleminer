@@ -1890,7 +1890,7 @@ export class MineSimulation {
     }
 
     const bottleneckThroughput = Math.min(activeMineThroughput, this.elevator.stats.throughputPerSecond, this.warehouse.stats.throughputPerSecond);
-    const offlineOreSold = roundForState(bottleneckThroughput * offlineSeconds * 0.1);
+    const offlineOreSold = roundForState(bottleneckThroughput * offlineSeconds * (1 / this.balance.economy.offlineEarningsDivisor));
     const offlineMoneyEarned = roundForState(offlineOreSold * this.balance.economy.sellPricePerOre);
 
     if (offlineMoneyEarned <= EPSILON) {

@@ -14,6 +14,7 @@ export interface BalanceConfig {
     startingMoney: number;
     startingMoneytest?: number;
     sellPricePerOre: number;
+    offlineEarningsDivisor: number;
   };
   startingStorage: {
     startingMineShaftStoredOre: number;
@@ -214,6 +215,10 @@ export function assertValidBalance(balance: BalanceConfig): void {
 
   if (balance.productionTimesSeconds.warehouseSellCycleTime <= 0) {
     throw new Error("Invalid balance value: warehouseSellCycleTime must be greater than 0.");
+  }
+
+  if (balance.economy.offlineEarningsDivisor <= 0) {
+    throw new Error("Invalid balance value: offlineEarningsDivisor must be greater than 0.");
   }
 }
 

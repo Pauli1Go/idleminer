@@ -3,7 +3,8 @@
     "currencyName": "cash",
     "startingMoney": 0,
     "startingMoneytest": 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,
-    "sellPricePerOre": 1
+    "sellPricePerOre": 1,
+    "offlineEarningsDivisor": 3
   },
   "startingStorage": {
     "startingMineShaftStoredOre": 0,

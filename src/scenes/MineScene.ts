@@ -1237,40 +1237,7 @@ export class MineScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
       .setDepth(UI_INTERACTIVE_DEPTH - 1);
 
-    managerSlotZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-      event.stopPropagation();
-      const state = this.latestState;
-      if (state === undefined) {
-        return;
-      }
-
-      this.openManagerPanel("mineShaft", state, shaftId);
-    });
-
-    managerAbilityZone.on(
-      "pointerdown",
-      (
-        _pointer: Phaser.Input.Pointer,
-        _localX: number,
-        _localY: number,
-        event: Phaser.Types.Input.EventData
-      ) => {
-        event.stopPropagation();
-        this.activateAssignedManagerAbility("mineShaft", shaftId);
-      }
-    );
-
-    upgradeButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-      event.stopPropagation();
-      this.applyFrame(this.viewModel.upgradeMineShaft(shaftId), this.time.now);
-    });
-
-    unlockButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-      event.stopPropagation();
-      this.applyFrame(this.viewModel.unlockMineShaft(shaftId), this.time.now);
-    });
-
-    return {
+    const rowUi: MineShaftRowUi = {
       shaftId,
       managerSlotX,
       managerSlotY,
@@ -1319,6 +1286,51 @@ export class MineScene extends Phaser.Scene {
       unlockButtonZone,
       upgradeEnabled: true
     };
+
+    upgradeButtonZone.on("pointerover", () => {
+      if (rowUi.upgradeEnabled) {
+        upgradeButtonImage.setTint(0xcccccc);
+      }
+    });
+
+    upgradeButtonZone.on("pointerout", () => {
+      upgradeButtonImage.setTint(rowUi.upgradeEnabled ? 0xffffff : 0x9c7f58);
+    });
+
+    managerSlotZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      const state = this.latestState;
+      if (state === undefined) {
+        return;
+      }
+
+      this.openManagerPanel("mineShaft", state, shaftId);
+    });
+
+    managerAbilityZone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        this.activateAssignedManagerAbility("mineShaft", shaftId);
+      }
+    );
+
+    upgradeButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.applyFrame(this.viewModel.upgradeMineShaft(shaftId), this.time.now);
+    });
+
+    unlockButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.applyFrame(this.viewModel.unlockMineShaft(shaftId), this.time.now);
+    });
+
+    return rowUi;
   }
 
   private createTopBar(): void {
@@ -1721,7 +1733,7 @@ export class MineScene extends Phaser.Scene {
         .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
     );
 
-    return {
+    const cardUi: UpgradeCardUi = {
       frame,
       levelBadge,
       decorations,
@@ -1740,6 +1752,18 @@ export class MineScene extends Phaser.Scene {
       buttonZone,
       enabled: true
     };
+
+    buttonZone.on("pointerover", () => {
+      if (cardUi.enabled) {
+        buttonImage.setTint(0xcccccc);
+      }
+    });
+
+    buttonZone.on("pointerout", () => {
+      buttonImage.setTint(cardUi.enabled ? 0xffffff : 0x9c7f58);
+    });
+
+    return cardUi;
   }
 
   private createStatusBar(): void {
@@ -2974,6 +2998,17 @@ export class MineScene extends Phaser.Scene {
 
     card.enabled = preview.canAfford && !preview.isMaxed;
     card.buttonBg.setAlpha(card.enabled ? 1 : 0.4);
+
+    if (!card.enabled) {
+      card.buttonBg.clearTint();
+    } else {
+      const pointer = this.input.activePointer;
+      if (card.buttonZone.getBounds().contains(pointer.x, pointer.y)) {
+        card.buttonBg.setTint(0xcccccc);
+      } else {
+        card.buttonBg.clearTint();
+      }
+    }
   }
 
   private refreshUpgradeCard(target: UpgradeTarget, card: UpgradeCardUi, state: GameState): void {
@@ -3020,7 +3055,15 @@ export class MineScene extends Phaser.Scene {
     card.frame.setAlpha(enabled ? 1 : 0.88);
     card.levelBadge.setAlpha(enabled ? 1 : 0.76);
     card.buttonImage.setAlpha(enabled ? 1 : 0.7);
-    card.buttonImage.setTint(enabled ? 0xffffff : 0x9c7f58);
+    
+    const pointer = this.input.activePointer;
+    const isOver = card.buttonZone.getBounds().contains(pointer.x, pointer.y);
+    
+    if (enabled && isOver) {
+      card.buttonImage.setTint(0xcccccc);
+    } else {
+      card.buttonImage.setTint(enabled ? 0xffffff : 0x9c7f58);
+    }
     card.buttonText.setColor(enabled ? "#fff8de" : "#e0cfb3");
     card.costText.setColor(enabled ? "#5a3411" : "#a84a3a");
     card.buyCountText.setColor(enabled ? "#7b4e1d" : "#9f7e62");
@@ -3039,7 +3082,15 @@ export class MineScene extends Phaser.Scene {
     row.panelFrame.setAlpha(enabled ? 1 : 0.88);
     row.levelBadge.setAlpha(enabled ? 1 : 0.76);
     row.upgradeButtonImage.setAlpha(enabled ? 1 : 0.7);
-    row.upgradeButtonImage.setTint(enabled ? 0xffffff : 0x9c7f58);
+
+    const pointer = this.input.activePointer;
+    const isOver = row.upgradeButtonZone.getBounds().contains(pointer.x, pointer.y);
+
+    if (enabled && isOver) {
+      row.upgradeButtonImage.setTint(0xcccccc);
+    } else {
+      row.upgradeButtonImage.setTint(enabled ? 0xffffff : 0x9c7f58);
+    }
     row.upgradeButtonText.setColor(enabled ? "#fff8de" : "#e0cfb3");
     row.costText.setColor(enabled ? "#5a3411" : "#a84a3a");
     row.buyCountText.setColor(enabled ? "#7b4e1d" : "#9f7e62");
