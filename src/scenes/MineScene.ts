@@ -72,6 +72,7 @@ import {
 } from "../core/index.ts";
 import { formatLargeNumber, formatCurrency, formatDuration } from "../core/formatters.ts";
 import { SimulationViewModel, type SimulationFrame } from "../game/SimulationViewModel.ts";
+import { IS_DEBUG } from "../debug/config.ts";
 
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 720;
@@ -479,7 +480,10 @@ export class MineScene extends Phaser.Scene {
     this.totalMineShafts = Math.max(1, balance.mineShaft.totalMineShafts);
     this.worldHeight = this.computeWorldHeight(this.totalMineShafts);
     this.saveRepository = saveRepository;
-    this.viewModel = new SimulationViewModel(balance, { saveRepository });
+    this.viewModel = new SimulationViewModel(balance, { 
+      saveRepository,
+      isDebug: IS_DEBUG
+    });
   }
 
   preload(): void {
@@ -1323,14 +1327,16 @@ export class MineScene extends Phaser.Scene {
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
 
-    this.createResetButton();
+    if (IS_DEBUG) {
+      this.createResetButton();
+    }
   }
 
   private createResetButton(): void {
-    const x = FLOW_PANEL_X + FLOW_PANEL_WIDTH + 10;
-    const y = FLOW_PANEL_Y;
     const width = 80;
     const height = 40;
+    const x = 20;
+    const y = GAME_HEIGHT - height - 20;
 
     const bg = this.pinUi(this.add.graphics().setDepth(PINNED_UI_PANEL_DEPTH));
     bg.fillStyle(0xcc0000, 0.9);

@@ -52,6 +52,7 @@ import {
 
 export interface MineSimulationOptions {
   fixedStepSeconds?: number;
+  isDebug?: boolean;
 }
 
 export class MineSimulation {
@@ -61,6 +62,7 @@ export class MineSimulation {
   readonly mineShaft: MineShaft;
   readonly elevator: Elevator;
   readonly warehouse: Warehouse;
+  private readonly isDebug: boolean;
 
   private readonly signals = new SimulationSignalBus();
   private accumulatorSeconds = 0;
@@ -85,7 +87,13 @@ export class MineSimulation {
 
     this.balance = balance;
     this.fixedStepSeconds = fixedStepSeconds;
-    this.money = roundForState(balance.economy.startingMoney);
+    this.isDebug = options.isDebug ?? false;
+    
+    const startingMoney = (this.isDebug && balance.economy.startingMoneytest !== undefined)
+      ? balance.economy.startingMoneytest
+      : balance.economy.startingMoney;
+      
+    this.money = roundForState(startingMoney);
 
     const mineShaftDefinitions = getMineShaftConfigEntries(balance);
     this.mineShafts = mineShaftDefinitions.map((definition) => this.createMineShaftEntity(definition));
@@ -110,7 +118,7 @@ export class MineSimulation {
           unlocksShaftId: b.unlocksShaft,
           isRemoved: false,
           removalCost: b.removalCost,
-          removalDurationSeconds: b.removalDurationSeconds,
+          removalDurationSeconds: this.isDebug ? 0 : b.removalDurationSeconds,
           remainingRemovalSeconds: 0,
           isRemoving: false
         };

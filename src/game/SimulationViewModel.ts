@@ -56,6 +56,7 @@ export interface SimulationViewModelOptions {
   initialSave?: SaveGameRecord | null;
   saveRepository?: SaveGameRepository;
   autoSaveIntervalSeconds?: number;
+  isDebug?: boolean;
 }
 
 export class SimulationViewModel {
@@ -69,7 +70,10 @@ export class SimulationViewModel {
   public offlineProgressResult: OfflineProgressResult | null = null;
 
   constructor(balance: BalanceConfig, options: SimulationViewModelOptions = {}) {
-    this.simulation = new MineSimulation(balance, { fixedStepSeconds: 0.1 });
+    this.simulation = new MineSimulation(balance, { 
+      fixedStepSeconds: 0.1,
+      isDebug: options.isDebug
+    });
 
     const initialSave = options.initialSave ?? options.saveRepository?.load() ?? null;
 

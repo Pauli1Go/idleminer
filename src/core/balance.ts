@@ -12,6 +12,7 @@ export interface BalanceConfig {
   economy: {
     currencyName: string;
     startingMoney: number;
+    startingMoneytest?: number;
     sellPricePerOre: number;
   };
   startingStorage: {
