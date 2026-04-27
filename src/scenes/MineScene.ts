@@ -1535,15 +1535,15 @@ export class MineScene extends Phaser.Scene {
 
     const coinIcon = this.pinUi(
       this.add
-        .image(x + 56, y + 27, "coin-icon")
-        .setDisplaySize(16, 16)
+        .image(x + 63, y + 27, "coin-icon")
+        .setDisplaySize(28, 28)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     objects.push(coinIcon);
 
     const costText = this.pinUi(
       this.add
-        .text(x + 68, y + 27, "100", smallUiTextStyle(11, "#5a3411"))
+        .text(x + 74, y + 27, "100", smallUiTextStyle(11, "#5a3411"))
         .setOrigin(0, 0.5)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
