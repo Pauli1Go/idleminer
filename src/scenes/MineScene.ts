@@ -269,6 +269,16 @@ const assetManifest = {
   "ability-cost-reduction": abilityCostReductionUrl
 } satisfies Record<string, string>;
 
+interface MiniUpgradeCardUi {
+  objects: Phaser.GameObjects.GameObject[];
+  levelText: Phaser.GameObjects.Text;
+  costText: Phaser.GameObjects.Text;
+  buttonZone: Phaser.GameObjects.Zone;
+  buttonBg: Phaser.GameObjects.Image;
+  target: "warehouse" | "elevator";
+  enabled: boolean;
+}
+
 interface UpgradeCardUi {
   frame: Phaser.GameObjects.Graphics;
   levelBadge: Phaser.GameObjects.Graphics;
@@ -448,6 +458,7 @@ export class MineScene extends Phaser.Scene {
   private buyModeBarPanel!: Phaser.GameObjects.Graphics;
   private buyModeBarLabel!: Phaser.GameObjects.Text;
   private upgradeCards!: Record<"warehouse" | "elevator", UpgradeCardUi>;
+  private miniUpgradeCards: Record<"warehouse" | "elevator", MiniUpgradeCardUi> | null = null;
   private managerSlots!: Record<"warehouse" | "elevator", ManagerSlotUi>;
   private saveRepository?: SaveGameRepository;
   private activeManagerPanelArea: ManagerArea | null = null;
@@ -1354,6 +1365,8 @@ export class MineScene extends Phaser.Scene {
     if (IS_DEBUG) {
       this.createResetButton();
     }
+    
+    this.createMiniUpgradeCards();
   }
 
   private createResetButton(): void {
@@ -1476,6 +1489,130 @@ export class MineScene extends Phaser.Scene {
       this.buyModeButtons.push(button);
       cursorX += config.width + BUY_MODE_BUTTON_GAP;
     }
+  }
+
+  private createMiniUpgradeCards(): void {
+    const cardWidth = 180;
+    const cardHeight = 42;
+    const startX = FLOW_PANEL_X + FLOW_PANEL_WIDTH + 8; // ~600
+    const y = 14;
+
+    this.miniUpgradeCards = {
+      warehouse: this.createMiniUpgradeCard("warehouse", startX, y, cardWidth, cardHeight),
+      elevator: this.createMiniUpgradeCard("elevator", startX + cardWidth + 8, y, cardWidth, cardHeight)
+    };
+  }
+
+  private createMiniUpgradeCard(target: "warehouse" | "elevator", x: number, y: number, width: number, height: number): MiniUpgradeCardUi {
+    const objects: Phaser.GameObjects.GameObject[] = [];
+
+    const bg = this.pinUi(this.drawRoundedPanel(x, y, width, height, {
+      fill: 0x213b46,
+      fillAlpha: 0.9,
+      innerFill: 0x5c7c87,
+      innerAlpha: 0.16,
+      line: 0xf1c96b,
+      radius: 12
+    }).setDepth(PINNED_UI_PANEL_DEPTH));
+    objects.push(bg);
+
+    const titleText = this.pinUi(
+      this.add
+        .text(x + 10, y + 10, target === "warehouse" ? "Warehouse" : "Elevator", smallUiTextStyle(12, "#f6e9ba"))
+        .setOrigin(0, 0.5)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    objects.push(titleText);
+
+    const levelText = this.pinUi(
+      this.add
+        .text(x + 10, y + 30, "Lvl 1", smallUiTextStyle(10, "#a4c2c9"))
+        .setOrigin(0, 0.5)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    objects.push(levelText);
+
+    const coinIcon = this.pinUi(
+      this.add
+        .image(x + 56, y + 30, "coin-icon")
+        .setDisplaySize(16, 16)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    objects.push(coinIcon);
+
+    const costText = this.pinUi(
+      this.add
+        .text(x + 68, y + 30, "100", smallUiTextStyle(11, "#fff8de"))
+        .setOrigin(0, 0.5)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    objects.push(costText);
+
+    const buttonSize = 28;
+    const buttonX = x + width - 18;
+    const buttonY = y + height / 2;
+
+    const buttonBg = this.pinUi(
+      this.add
+        .image(buttonX, buttonY, "button-panel")
+        .setDisplaySize(buttonSize, buttonSize)
+        .setDepth(PINNED_UI_PANEL_DEPTH + 1)
+    );
+    objects.push(buttonBg);
+
+    const arrowIcon = this.pinUi(
+      this.add
+        .image(buttonX, buttonY, "upgrade-arrow-icon")
+        .setDisplaySize(16, 16)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    objects.push(arrowIcon);
+
+    const buttonZone = this.pinUi(
+      this.add
+        .zone(buttonX, buttonY, buttonSize, buttonSize)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
+    );
+    objects.push(buttonZone);
+
+    buttonZone.on("pointerdown", () => {
+      if (this.miniUpgradeCards && this.miniUpgradeCards[target].enabled) {
+        if (target === "warehouse") {
+          this.applyFrame(this.viewModel.purchaseWarehouseUpgrade(), this.time.now);
+        } else {
+          this.applyFrame(this.viewModel.purchaseElevatorUpgrade(), this.time.now);
+        }
+      }
+    });
+
+    buttonZone.on("pointerover", () => {
+      if (this.miniUpgradeCards && this.miniUpgradeCards[target].enabled) {
+        buttonBg.setTint(0xcccccc);
+      }
+    });
+
+    buttonZone.on("pointerout", () => {
+      buttonBg.clearTint();
+    });
+
+    // Initially hide all objects
+    objects.forEach(obj => {
+      if ("setVisible" in obj && typeof obj.setVisible === "function") {
+        obj.setVisible(false);
+      }
+    });
+
+    return {
+      objects,
+      levelText,
+      costText,
+      buttonZone,
+      buttonBg,
+      target,
+      enabled: true
+    };
   }
 
   private createUpgradeCards(): void {
@@ -2814,6 +2951,22 @@ export class MineScene extends Phaser.Scene {
   private refreshUpgradeCards(state: GameState): void {
     this.refreshUpgradeCard("warehouse", this.upgradeCards.warehouse, state);
     this.refreshUpgradeCard("elevator", this.upgradeCards.elevator, state);
+    
+    if (this.miniUpgradeCards) {
+      this.refreshMiniUpgradeCard("warehouse", this.miniUpgradeCards.warehouse, state);
+      this.refreshMiniUpgradeCard("elevator", this.miniUpgradeCards.elevator, state);
+    }
+  }
+
+  private refreshMiniUpgradeCard(target: "warehouse" | "elevator", card: MiniUpgradeCardUi, state: GameState): void {
+    const preview = state.upgrades[target];
+    
+    card.levelText.setText(`Lvl ${preview.currentLevel}`);
+    card.costText.setText(preview.isMaxed ? "MAX" : formatLargeNumber(preview.cost));
+    fitTextToWidth(card.costText, 80, [11, 10, 9]);
+
+    card.enabled = preview.canAfford && !preview.isMaxed;
+    card.buttonBg.setAlpha(card.enabled ? 1 : 0.4);
   }
 
   private refreshUpgradeCard(target: UpgradeTarget, card: UpgradeCardUi, state: GameState): void {
@@ -2937,33 +3090,19 @@ export class MineScene extends Phaser.Scene {
       }
     }
 
-    // Upgrade cards
-    for (const card of Object.values(this.upgradeCards)) {
-      const objects: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible> = [
-        card.frame,
-        card.levelBadge,
-        ...card.decorations,
-        card.titleText,
-        card.levelText,
-        card.mainLabelText,
-        card.mainCurrentText,
-        card.mainNextText,
-        card.secondaryLabelText,
-        card.secondaryCurrentText,
-        card.secondaryNextText,
-        card.costText,
-        card.buyCountText,
-        card.buttonImage,
-        card.buttonText,
-        card.buttonZone
-      ];
+    if (this.miniUpgradeCards) {
+      for (const card of Object.values(this.miniUpgradeCards)) {
+        card.objects.forEach((object) => {
+          if ("setVisible" in object && typeof (object as any).setVisible === "function") {
+            (object as any).setVisible(!visible);
+          }
+        });
 
-      objects.forEach((object) => object.setVisible(visible));
-
-      if (visible && card.enabled) {
-        card.buttonZone.setInteractive({ useHandCursor: true });
-      } else {
-        card.buttonZone.disableInteractive();
+        if (!visible && card.enabled) {
+          card.buttonZone.setInteractive({ useHandCursor: true });
+        } else {
+          card.buttonZone.disableInteractive();
+        }
       }
     }
   }
