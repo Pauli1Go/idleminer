@@ -164,9 +164,9 @@
         "executive": 7.5
       },
       "upgradeCostReduction": {
-        "junior": 0.4,
-        "senior": 0.7,
-        "executive": 0.8
+        "junior": 0.6,
+        "senior": 0.3,
+        "executive": 0.2
       },
       "miningSpeedBoost": {
         "junior": 3,
@@ -181,9 +181,9 @@
         "executive": 6
       },
       "upgradeCostReduction": {
-        "junior": 0.4,
-        "senior": 0.7,
-        "executive": 0.8
+        "junior": 0.6,
+        "senior": 0.3,
+        "executive": 0.2
       },
       "loadingSpeedBoost": {
         "junior": 2,
@@ -203,9 +203,9 @@
         "executive": 7
       },
       "upgradeCostReduction": {
-        "junior": 0.4,
-        "senior": 0.7,
-        "executive": 0.8
+        "junior": 0.6,
+        "senior": 0.3,
+        "executive": 0.2
       },
       "loadingSpeedBoost": {
         "junior": 3,
