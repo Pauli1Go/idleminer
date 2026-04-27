@@ -442,7 +442,8 @@ export class MineScene extends Phaser.Scene {
   private warehouseFeedback!: Phaser.GameObjects.Text;
   private commandFeedback!: Phaser.GameObjects.Text;
   private moneyText!: Phaser.GameObjects.Text;
-  private productionText!: Phaser.GameObjects.Text;
+  private productionTextsBoosted: Phaser.GameObjects.Text[] = [];
+  private productionTextsBase: Phaser.GameObjects.Text[] = [];
   private buyModeButtons: BuyModeButtonUi[] = [];
   private buyModeBarPanel!: Phaser.GameObjects.Graphics;
   private buyModeBarLabel!: Phaser.GameObjects.Text;
@@ -1324,12 +1325,31 @@ export class MineScene extends Phaser.Scene {
     this.pinUi(
       this.add.image(FLOW_PANEL_X + 24, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, "ore-icon").setDisplaySize(40, 40).setDepth(PINNED_UI_TEXT_DEPTH)
     );
-    this.productionText = this.pinUi(
-      this.add
-        .text(FLOW_PANEL_X + 56, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, "", topBarTextStyle(12, "#4b2709"))
-        .setOrigin(0, 0.5)
-        .setDepth(PINNED_UI_TEXT_DEPTH)
-    );
+    this.productionTextsBoosted = [];
+    this.productionTextsBase = [];
+
+    const textStartX = FLOW_PANEL_X + 56;
+    const partWidth = (FLOW_PANEL_WIDTH - 66) / 3;
+
+    for (let i = 0; i < 3; i++) {
+      const x = textStartX + i * partWidth;
+      const boostedText = this.pinUi(
+        this.add
+          .text(x, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, "", topBarTextStyle(12, "#4b2709"))
+          .setOrigin(0, 0.5)
+          .setDepth(PINNED_UI_TEXT_DEPTH)
+      );
+      this.productionTextsBoosted.push(boostedText);
+
+      const baseText = this.pinUi(
+        this.add
+          .text(x, FLOW_PANEL_Y + 28, "", topBarTextStyle(10, "#4a90e2"))
+          .setOrigin(0, 0.5)
+          .setDepth(PINNED_UI_TEXT_DEPTH)
+          .setVisible(false)
+      );
+      this.productionTextsBase.push(baseText);
+    }
 
     if (IS_DEBUG) {
       this.createResetButton();
@@ -1956,9 +1976,41 @@ export class MineScene extends Phaser.Scene {
       this.moneyText.setText(formatMoney(state.money));
     }
 
-    if (refreshAll || eventTypes.has("statsChanged") || eventTypes.has("upgradePurchased") || eventTypes.has("mineShaftUnlocked")) {
-      this.productionText.setText(formatProductionSummary(state));
-      fitTextToWidth(this.productionText, FLOW_PANEL_WIDTH - 58, [12, 11, 10]);
+    if (
+      refreshAll ||
+      eventTypes.has("statsChanged") ||
+      eventTypes.has("upgradePurchased") ||
+      eventTypes.has("mineShaftUnlocked") ||
+      managerStateChanged
+    ) {
+      const summary = formatProductionSummary(state);
+      const keys: Array<"mine" | "elevator" | "warehouse"> = ["mine", "elevator", "warehouse"];
+      
+      keys.forEach((key, index) => {
+        const boostedText = this.productionTextsBoosted[index];
+        const baseText = this.productionTextsBase[index];
+        
+        boostedText.setText(summary.boosted[key]);
+        baseText.setText(summary.base[key]);
+        
+        // Highlight bottleneck in red
+        const isBottleneck = summary.bottleneckArea === key;
+        boostedText.setColor(isBottleneck ? "#cc3333" : "#4b2709");
+        
+        if (summary.isBoosted) {
+          boostedText.setY(FLOW_PANEL_Y + 13);
+          baseText.setVisible(true);
+          // fitTextToWidth for each part
+          const partWidth = (FLOW_PANEL_WIDTH - 66) / 3;
+          fitTextToWidth(boostedText, partWidth - 10, [12, 11, 10]);
+          fitTextToWidth(baseText, partWidth - 10, [10, 9, 8]);
+        } else {
+          boostedText.setY(FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2);
+          baseText.setVisible(false);
+          const partWidth = (FLOW_PANEL_WIDTH - 66) / 3;
+          fitTextToWidth(boostedText, partWidth - 10, [12, 11, 10]);
+        }
+      });
     }
 
     if (upgradeStateChanged) {
@@ -2555,6 +2607,7 @@ export class MineScene extends Phaser.Scene {
       this.add
         .image(x + 58, y + 21, getAbilityIconKey(manager.abilityType))
         .setDisplaySize(22, 22)
+        .setAlpha(manager.isAssigned || manager.remainingCooldownTime > 0 ? 0.52 : 1)
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
     this.addManagerPanelObject(
@@ -3415,8 +3468,13 @@ function getUpgradeDisplay(balance: BalanceConfig, target: UpgradeTarget, state:
   };
 }
 
-function formatProductionSummary(state: GameState): string {
-  const totalMineRate = Object.values(state.entities.mineShafts).reduce((sum, shaft) => {
+function formatProductionSummary(state: GameState): {
+  boosted: { mine: string; elevator: string; warehouse: string };
+  base: { mine: string; elevator: string; warehouse: string };
+  isBoosted: boolean;
+  bottleneckArea: "mine" | "elevator" | "warehouse";
+} {
+  const currentMineRate = Object.values(state.entities.mineShafts).reduce((sum, shaft) => {
     if (!shaft.isUnlocked) {
       return sum;
     }
@@ -3424,11 +3482,52 @@ function formatProductionSummary(state: GameState): string {
     return sum + state.currentValues.mineShafts[shaft.shaftId].throughputPerSecond;
   }, 0);
 
-  return (
-    `Mine ${formatRate(totalMineRate)}   ` +
-    `Elevator ${formatRate(state.currentValues.elevator.throughputPerSecond)}   ` +
-    `Warehouse ${formatRate(state.currentValues.warehouse.throughputPerSecond)}`
-  );
+  const baseMineRate = Object.values(state.entities.mineShafts).reduce((sum, shaft) => {
+    if (!shaft.isUnlocked) {
+      return sum;
+    }
+
+    return sum + state.baseValues.mineShafts[shaft.shaftId].throughputPerSecond;
+  }, 0);
+
+  const currentElevatorRate = state.currentValues.elevator.throughputPerSecond;
+  const baseElevatorRate = state.baseValues.elevator.throughputPerSecond;
+
+  const currentWarehouseRate = state.currentValues.warehouse.throughputPerSecond;
+  const baseWarehouseRate = state.baseValues.warehouse.throughputPerSecond;
+
+  const isBoosted =
+    currentMineRate > baseMineRate + 0.001 ||
+    currentElevatorRate > baseElevatorRate + 0.001 ||
+    currentWarehouseRate > baseWarehouseRate + 0.001;
+
+  // Find bottleneck (the one with the lowest throughput)
+  let bottleneckArea: "mine" | "elevator" | "warehouse" = "mine";
+  let minRate = currentMineRate;
+
+  if (currentElevatorRate < minRate) {
+    minRate = currentElevatorRate;
+    bottleneckArea = "elevator";
+  }
+  if (currentWarehouseRate < minRate) {
+    minRate = currentWarehouseRate;
+    bottleneckArea = "warehouse";
+  }
+
+  return {
+    boosted: {
+      mine: `Mine ${formatRate(currentMineRate)}`,
+      elevator: `Elevator ${formatRate(currentElevatorRate)}`,
+      warehouse: `Warehouse ${formatRate(currentWarehouseRate)}`
+    },
+    base: {
+      mine: `Mine ${formatRate(baseMineRate)}`,
+      elevator: `Elevator ${formatRate(baseElevatorRate)}`,
+      warehouse: `Warehouse ${formatRate(baseWarehouseRate)}`
+    },
+    isBoosted,
+    bottleneckArea
+  };
 }
 
 function formatRate(value: number): string {
