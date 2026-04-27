@@ -45,6 +45,8 @@ import elevatorShaftMiddleUrl from "../../assets/world/elevator_shaft_vertical_m
 import elevatorShaftTopUrl from "../../assets/world/elevator_shaft_vertical_top_level1.png";
 import elevatorTowerUrl from "../../assets/world/elevator_tower_surface_level1.png";
 import mineShaftBackWallUrl from "../../assets/world/mine_shaft_back_wall_level1.png";
+import mineShaftBackWallLevel2Url from "../../assets/world/mine_shaft_back_wall_level2.png";
+import mineShaftBackWallLevel3Url from "../../assets/world/mine_shaft_back_wall_level3.png";
 import mineShaftFloorUrl from "../../assets/world/mine_shaft_floor_level1.png";
 import mineShaftPickupEmptyUrl from "../../assets/world/mine_shaft_pickup_box_empty_level1.png";
 import mineShaftPickupFullUrl from "../../assets/world/mine_shaft_pickup_box_full_level1.png";
@@ -233,6 +235,8 @@ const assetManifest = {
   "warehouse-pile-full": warehousePileFullUrl,
   "mine-shaft-floor": mineShaftFloorUrl,
   "mine-shaft-back-wall": mineShaftBackWallUrl,
+  "mine-shaft-back-wall-level2": mineShaftBackWallLevel2Url,
+  "mine-shaft-back-wall-level3": mineShaftBackWallLevel3Url,
   "mine-shaft-supports": mineShaftSupportsUrl,
   "mine-pickup-empty": mineShaftPickupEmptyUrl,
   "mine-pickup-small": mineShaftPickupSmallUrl,
@@ -1042,8 +1046,15 @@ export class MineScene extends Phaser.Scene {
     const managerSlotY = backWallY - 58;
     const mineClickTop = backWallY - 84;
 
+    let backWallTexture = "mine-shaft-back-wall";
+    if (shaftId >= 21) {
+      backWallTexture = "mine-shaft-back-wall-level3";
+    } else if (shaftId >= 11) {
+      backWallTexture = "mine-shaft-back-wall-level2";
+    }
+
     const backWall = this.add
-      .image(MINE_SHAFT_CENTER_X, backWallY + MINE_SHAFT_BACK_WALL_VISUAL_OFFSET_Y, "mine-shaft-back-wall")
+      .image(MINE_SHAFT_CENTER_X, backWallY + MINE_SHAFT_BACK_WALL_VISUAL_OFFSET_Y, backWallTexture)
       .setDisplaySize(MINE_SHAFT_BACK_WALL_WIDTH, MINE_SHAFT_BACK_WALL_HEIGHT);
     const floor = this.add
       .image(MINE_SHAFT_CENTER_X, floorY, "mine-shaft-floor")
