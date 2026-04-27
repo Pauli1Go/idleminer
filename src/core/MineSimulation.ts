@@ -28,6 +28,7 @@ import {
   isManagerSystemLocked,
   managerAreas,
   normalizeManagerState,
+  populateManagerBalanceValues,
   type ManagerState
 } from "./managers.ts";
 import { SimulationSignalBus } from "./events.ts";
@@ -157,7 +158,10 @@ export class MineSimulation {
           hireCountsByArea: countManagersByArea(ownedManagers),
           assignedManagerIdsByArea: this.getAssignedManagerIdsByArea(ownedManagers),
           assignedManagerIdsByShaft: this.getAssignedManagerIdsByShaft(ownedManagers),
-          ownedManagers
+          ownedManagers: ownedManagers.map((m) => {
+            const { abilityMultiplier, costReductionMultiplier, activeDurationSeconds, cooldownSeconds, hireCost, ...rest } = m;
+            return rest as any;
+          })
         },
         mineShafts: this.mineShafts.map((shaft) => ({
           shaftId: shaft.shaftId,
@@ -176,7 +180,10 @@ export class MineSimulation {
               }
             : null
         })),
-        blockades: Object.values(this.blockades).map(b => ({ ...b })),
+        blockades: Object.values(this.blockades).map(b => {
+          const { removalCost, removalDurationSeconds, ...rest } = b;
+          return rest as any;
+        }),
         entities: {
           mineShaft: {
             state: firstShaft.state,
@@ -265,8 +272,11 @@ export class MineSimulation {
 
     if (state.blockades) {
       for (const b of state.blockades) {
-        if (this.blockades[b.blockadeId]) {
-          this.blockades[b.blockadeId] = { ...b };
+        const existing = this.blockades[b.blockadeId];
+        if (existing) {
+          existing.isRemoved = b.isRemoved;
+          existing.remainingRemovalSeconds = b.remainingRemovalSeconds;
+          existing.isRemoving = b.isRemoving;
         }
       }
     }
@@ -1506,12 +1516,21 @@ export class MineSimulation {
   }
 
   private restoreManagersFromSave(state: SaveGameStateV3): void {
-    const managers = state.managers.ownedManagers.map((manager) =>
-      normalizeManagerState({
-        ...manager,
-        assignedShaftId: manager.assignedShaftId ?? null
-      })
-    );
+    const hireCounts: Record<ManagerArea, number> = { mineShaft: 0, elevator: 0, warehouse: 0 };
+    const managers = state.managers.ownedManagers.map((manager) => {
+      const area = manager.area;
+      const hiredCountBeforeThis = hireCounts[area];
+      hireCounts[area]++;
+      
+      return populateManagerBalanceValues(
+        normalizeManagerState({
+          ...manager,
+          assignedShaftId: manager.assignedShaftId ?? null
+        }),
+        this.balance,
+        hiredCountBeforeThis
+      );
+    });
 
     for (const manager of managers) {
       manager.isAssigned = false;

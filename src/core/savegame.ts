@@ -4,7 +4,7 @@ import { countManagersByArea, getAssignedManagerIdForArea, normalizeManagerState
 import { isAbilityTypeValidForArea } from "./managers.ts";
 import type { ElevatorState, MineShaftState, WarehouseState } from "./types.ts";
 
-export const SAVEGAME_VERSION = 5 as const;
+export const SAVEGAME_VERSION = 6 as const;
 export const SAVEGAME_STORAGE_KEY = "idle-miner.savegame";
 
 export interface SaveGameStorageLike {
@@ -108,7 +108,7 @@ export interface SaveGameRecordV2 {
 }
 
 export interface SaveGameRecordV3 {
-  version: 4 | 5;
+  version: 4 | 5 | 6;
   savedAt: number;
   state: SaveGameStateV3;
 }
@@ -206,11 +206,11 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state: upgradeStateV4ToV5(state)
+      state: upgradeStateV5ToV6(upgradeStateV4ToV5(state))
     };
   }
 
-  if (parsed.version === 4 || parsed.version === SAVEGAME_VERSION) {
+  if (parsed.version === 4 || parsed.version === 5) {
     const state = readStateV3(parsed.state);
 
     if (state === null) {
@@ -220,7 +220,21 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state: upgradeStateV4ToV5(state)
+      state: upgradeStateV5ToV6(upgradeStateV4ToV5(state))
+    };
+  }
+
+  if (parsed.version === SAVEGAME_VERSION) {
+    const state = readStateV3(parsed.state);
+
+    if (state === null) {
+      return null;
+    }
+
+    return {
+      version: SAVEGAME_VERSION,
+      savedAt,
+      state
     };
   }
 
@@ -254,7 +268,17 @@ export function normalizeSaveGameRecord(saveGame: SaveGameRecordCompatible): Sav
     return {
       version: SAVEGAME_VERSION,
       savedAt: saveGame.savedAt,
-      state: upgradeStateV4ToV5(state)
+      state: upgradeStateV5ToV6(upgradeStateV4ToV5(state))
+    };
+  }
+
+  if (saveGame.version === 6) {
+    const state = readStateV3(saveGame.state);
+    if (state === null) return null;
+    return {
+      version: SAVEGAME_VERSION,
+      savedAt: saveGame.savedAt,
+      state
     };
   }
 
@@ -364,6 +388,14 @@ function upgradeStateV4ToV5(state: SaveGameStateV3): SaveGameStateV3 {
     ...state,
     blockades: []
   };
+}
+
+function upgradeStateV5ToV6(state: SaveGameStateV3): SaveGameStateV3 {
+  // In version 6, balance values are loaded from balance.json.
+  // The actual state structure remains compatible, but we can ensure
+  // that some fields are present if needed. 
+  // For now, it's just a version bump in the record.
+  return state;
 }
 
 function readLevels(value: unknown): SaveGameStateV1["levels"] | null {
@@ -499,15 +531,15 @@ function readBlockadesSection(value: unknown): SaveGameStateV3["blockades"] | nu
     const remainingRemovalSeconds = readNonNegativeNumber(entry.remainingRemovalSeconds);
     const isRemoving = readBoolean(entry.isRemoving);
     
-    if (blockadeId === null || afterShaftId === null || unlocksShaftId === null || isRemoved === null || removalCost === null || removalDurationSeconds === null || remainingRemovalSeconds === null || isRemoving === null) return null;
+    if (blockadeId === null || afterShaftId === null || unlocksShaftId === null || isRemoved === null || remainingRemovalSeconds === null || isRemoving === null) return null;
     
     blockades.push({
       blockadeId,
       afterShaftId,
       unlocksShaftId,
       isRemoved,
-      removalCost,
-      removalDurationSeconds,
+      removalCost: removalCost ?? 0,
+      removalDurationSeconds: removalDurationSeconds ?? 0,
       remainingRemovalSeconds,
       isRemoving
     });
@@ -585,9 +617,26 @@ function readManagerState(value: unknown): ManagerState | null {
   const remainingActiveTime = readNonNegativeNumber(value.remainingActiveTime);
   const remainingCooldownTime = readNonNegativeNumber(value.remainingCooldownTime);
 
-  if (id === null || displayName === null || area === null || rank === null || abilityType === null || abilityMultiplier === null || costReductionMultiplier === null || activeDurationSeconds === null || cooldownSeconds === null || hireCost === null || isOwned === null || isAssigned === null || assignedShaftId === undefined || isActive === null || remainingActiveTime === null || remainingCooldownTime === null) return null;
+  if (id === null || displayName === null || area === null || rank === null || abilityType === null || isOwned === null || isAssigned === null || assignedShaftId === undefined || isActive === null || remainingActiveTime === null || remainingCooldownTime === null) return null;
 
-  return normalizeManagerState({ id, displayName, area, rank, abilityType, abilityMultiplier, costReductionMultiplier, activeDurationSeconds, cooldownSeconds, hireCost, isOwned, isAssigned, assignedShaftId, isActive, remainingActiveTime, remainingCooldownTime });
+  return normalizeManagerState({ 
+    id, 
+    displayName, 
+    area, 
+    rank, 
+    abilityType, 
+    abilityMultiplier: abilityMultiplier ?? 1, 
+    costReductionMultiplier: costReductionMultiplier ?? 1, 
+    activeDurationSeconds: activeDurationSeconds ?? 0, 
+    cooldownSeconds: cooldownSeconds ?? 0, 
+    hireCost: hireCost ?? 0, 
+    isOwned, 
+    isAssigned, 
+    assignedShaftId, 
+    isActive, 
+    remainingActiveTime, 
+    remainingCooldownTime 
+  });
 }
 
 function readManagerArea(value: unknown): ManagerArea | null {

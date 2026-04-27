@@ -140,6 +140,28 @@ export function normalizeManagerState(manager: ManagerState): ManagerState {
   };
 }
 
+export function populateManagerBalanceValues(
+  manager: ManagerState,
+  balance: BalanceConfig,
+  hiredCountBeforeThis: number
+): ManagerState {
+  const rankConfig = balance.normalManagerRanks[manager.rank];
+  const effectConfig = balance.normalManagerEffects[manager.area] as any;
+  const abilityMultiplier = effectConfig[manager.abilityType]?.[manager.rank] || 1;
+  const costReductionMultiplier = manager.abilityType === "upgradeCostReduction" 
+    ? effectConfig["upgradeCostReduction"]?.[manager.rank] || 1 
+    : 1;
+
+  return {
+    ...manager,
+    abilityMultiplier: roundForState(abilityMultiplier),
+    costReductionMultiplier: roundForState(costReductionMultiplier),
+    activeDurationSeconds: roundForState(rankConfig.activeDurationSeconds),
+    cooldownSeconds: roundForState(rankConfig.cooldownSeconds),
+    hireCost: getManagerHireCost(balance, manager.area, hiredCountBeforeThis)
+  };
+}
+
 export function getEmptyManagerSystemState(balance: BalanceConfig, firstMineShaftLevel: number): ManagerSystemState {
   return {
     systemLocked: isManagerSystemLocked(balance, firstMineShaftLevel),
