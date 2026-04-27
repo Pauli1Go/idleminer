@@ -1597,63 +1597,45 @@ export class MineScene extends Phaser.Scene {
 
   private createManagerSlot(area: "warehouse" | "elevator"): ManagerSlotUi {
     const config = managerSlotLayout[area];
-    const frame = this.pinUi(this.add.graphics().setDepth(MANAGER_SLOT_DEPTH));
-    const titleText = this.pinUi(
-      this.add
-        .text(config.x + 12, config.y + 10, config.label, smallUiTextStyle(12, "#f9e9bb"))
-        .setDepth(MANAGER_SLOT_TEXT_DEPTH)
-    );
-    const emptySlotImage = this.pinUi(
-      this.add
-        .image(config.x + 38, config.y + 58, getManagerEmptySlotKey(area))
-        .setDisplaySize(MANAGER_SLOT_IMAGE_SIZE, MANAGER_SLOT_IMAGE_SIZE)
-        .setDepth(MANAGER_SLOT_TEXT_DEPTH)
-    );
-    const portraitImage = this.pinUi(
-      this.add
-        .image(config.x + 38, config.y + 60, getManagerPortraitKey(area, "junior"))
-        .setDisplaySize(MANAGER_SLOT_PORTRAIT_SIZE, MANAGER_SLOT_PORTRAIT_SIZE)
-        .setDepth(MANAGER_SLOT_TEXT_DEPTH)
-        .setVisible(false)
-        .setAlpha(0)
-    );
-    const rankText = this.pinUi(
-      this.add
-        .text(config.x + 76, config.y + 38, "", smallUiTextStyle(11, "#f7f1dd"))
-        .setDepth(MANAGER_SLOT_TEXT_DEPTH)
-    );
-    const abilityImage = this.pinUi(
-      this.add
-        .image(config.x + 172, config.y + 60, "ability-mining-speed")
-        .setDisplaySize(64, 64)
-        .setDepth(MANAGER_SLOT_TEXT_DEPTH)
-        .setVisible(false)
-        .setAlpha(0)
-    );
-    const abilityZone = this.pinUi(
-      this.add
-        .zone(config.x + 172, config.y + 60, 64, 64)
-        .setOrigin(0.5)
-        .setDepth(MANAGER_SLOT_INTERACTIVE_DEPTH + 1)
-        .setVisible(false)
-    );
-    const statusText = this.pinUi(
-      this.add
-        .text(config.x + 76, config.y + 60, "", smallUiTextStyle(11, "#f1d389"))
-        .setDepth(MANAGER_SLOT_TEXT_DEPTH)
-    );
-    const timerText = this.pinUi(
-      this.add
-        .text(config.x + 76, config.y + 82, "", smallUiTextStyle(11, "#dcecf1"))
-        .setDepth(MANAGER_SLOT_TEXT_DEPTH)
-    );
-    const slotZone = this.pinUi(
-      this.add
-        .zone(config.x, config.y, MANAGER_SLOT_WIDTH, MANAGER_SLOT_HEIGHT)
-        .setOrigin(0, 0)
-        .setInteractive({ useHandCursor: true })
-        .setDepth(MANAGER_SLOT_INTERACTIVE_DEPTH)
-    );
+    const frame = this.add.graphics().setDepth(MANAGER_SLOT_DEPTH);
+    const titleText = this.add
+      .text(config.x + 12, config.y + 10, config.label, smallUiTextStyle(12, "#f9e9bb"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
+    const emptySlotImage = this.add
+      .image(config.x + 38, config.y + 58, getManagerEmptySlotKey(area))
+      .setDisplaySize(MANAGER_SLOT_IMAGE_SIZE, MANAGER_SLOT_IMAGE_SIZE)
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
+    const portraitImage = this.add
+      .image(config.x + 38, config.y + 60, getManagerPortraitKey(area, "junior"))
+      .setDisplaySize(MANAGER_SLOT_PORTRAIT_SIZE, MANAGER_SLOT_PORTRAIT_SIZE)
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH)
+      .setVisible(false)
+      .setAlpha(0);
+    const rankText = this.add
+      .text(config.x + 76, config.y + 38, "", smallUiTextStyle(11, "#f7f1dd"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
+    const abilityImage = this.add
+      .image(config.x + 172, config.y + 60, "ability-mining-speed")
+      .setDisplaySize(64, 64)
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH)
+      .setVisible(false)
+      .setAlpha(0);
+    const abilityZone = this.add
+      .zone(config.x + 172, config.y + 60, 64, 64)
+      .setOrigin(0.5)
+      .setDepth(MANAGER_SLOT_INTERACTIVE_DEPTH + 1)
+      .setVisible(false);
+    const statusText = this.add
+      .text(config.x + 76, config.y + 60, "", smallUiTextStyle(11, "#f1d389"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
+    const timerText = this.add
+      .text(config.x + 76, config.y + 82, "", smallUiTextStyle(11, "#dcecf1"))
+      .setDepth(MANAGER_SLOT_TEXT_DEPTH);
+    const slotZone = this.add
+      .zone(config.x, config.y, MANAGER_SLOT_WIDTH, MANAGER_SLOT_HEIGHT)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(MANAGER_SLOT_INTERACTIVE_DEPTH);
 
     const slot: ManagerSlotUi = {
       area,
@@ -2887,28 +2869,33 @@ export class MineScene extends Phaser.Scene {
       }
     }
 
-    // Manager slots (warehouse / elevator)
-    for (const slot of Object.values(this.managerSlots)) {
+    // Upgrade cards
+    for (const card of Object.values(this.upgradeCards)) {
       const objects: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible> = [
-        slot.frame,
-        slot.titleText,
-        slot.emptySlotImage,
-        slot.portraitImage,
-        slot.rankText,
-        slot.abilityImage,
-        slot.abilityZone,
-        slot.statusText,
-        slot.timerText,
-        slot.slotZone
+        card.frame,
+        card.levelBadge,
+        ...card.decorations,
+        card.titleText,
+        card.levelText,
+        card.mainLabelText,
+        card.mainCurrentText,
+        card.mainNextText,
+        card.secondaryLabelText,
+        card.secondaryCurrentText,
+        card.secondaryNextText,
+        card.costText,
+        card.buyCountText,
+        card.buttonImage,
+        card.buttonText,
+        card.buttonZone
       ];
 
       objects.forEach((object) => object.setVisible(visible));
 
-      if (visible) {
-        slot.slotZone.setInteractive({ useHandCursor: true });
+      if (visible && card.enabled) {
+        card.buttonZone.setInteractive({ useHandCursor: true });
       } else {
-        slot.slotZone.disableInteractive();
-        slot.abilityZone.disableInteractive();
+        card.buttonZone.disableInteractive();
       }
     }
   }
