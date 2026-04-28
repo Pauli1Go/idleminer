@@ -1,5 +1,6 @@
 import type { ElevatorStats, MineShaftStats, WarehouseStats } from "./balance.ts";
 import type { ManagerSystemState } from "./managers.ts";
+import type { MineId, MinePrestigeData } from "./mines.ts";
 
 export type MineShaftState = "idle" | "mining" | "blocked" | "inactive";
 export type ElevatorState = "idle" | "moving" | "unloading" | "returning";
@@ -7,6 +8,7 @@ export type WarehouseState = "idle" | "selling";
 export type StorageId = "mineShaft" | "elevator" | "warehouse";
 
 export interface OfflineProgressResult {
+  mineId: MineId;
   offlineSeconds: number;
   moneyEarned: number;
   oreSold: number;
@@ -60,64 +62,96 @@ export interface MineShaftRuntimeState {
   } | null;
 }
 
-export interface GameState {
-  timeSeconds: number;
-  money: number;
-  levels: {
+export interface ResourceTotalsState {
+  producedOre: number;
+  collectedByElevatorOre: number;
+  transportedOre: number;
+  soldOre: number;
+  moneyEarned: number;
+}
+
+export interface GameLevelsState {
+  mineShaft: number; // For compatibility with single-shaft UI, usually refers to shaft 1
+  elevator: number;
+  warehouse: number;
+  mineShafts: Record<number, number>;
+}
+
+export interface GameResourcesState {
+  storedOre: {
     mineShaft: number; // For compatibility with single-shaft UI, usually refers to shaft 1
     elevator: number;
     warehouse: number;
     mineShafts: Record<number, number>;
   };
-  resources: {
-    storedOre: {
-      mineShaft: number; // For compatibility with single-shaft UI, usually refers to shaft 1
-      elevator: number;
-      warehouse: number;
-      mineShafts: Record<number, number>;
-    };
-    totals: {
-      producedOre: number;
-      collectedByElevatorOre: number;
-      transportedOre: number;
-      soldOre: number;
-      moneyEarned: number;
-    };
+  totals: ResourceTotalsState;
+}
+
+export interface GameUpgradesState {
+  mineShaft: UpgradePreviewState<MineShaftStats>; // For compatibility with single-shaft UI
+  elevator: UpgradePreviewState<ElevatorStats>;
+  warehouse: UpgradePreviewState<WarehouseStats>;
+  mineShafts: Record<number, UpgradePreviewState<MineShaftStats>>;
+}
+
+export interface GameCurrentValuesState {
+  mineShaft: MineShaftStats; // For compatibility
+  elevator: ElevatorStats;
+  warehouse: WarehouseStats;
+  mineShafts: Record<number, MineShaftStats>;
+}
+
+export interface GameEntitiesState {
+  mineShaft: MineShaftRuntimeState; // For compatibility
+  elevator: {
+    state: ElevatorState;
+    carriedOre: number;
+    capacity: number;
+    remainingTripSeconds: number;
   };
-  upgrades: {
-    mineShaft: UpgradePreviewState<MineShaftStats>; // For compatibility with single-shaft UI
-    elevator: UpgradePreviewState<ElevatorStats>;
-    warehouse: UpgradePreviewState<WarehouseStats>;
-    mineShafts: Record<number, UpgradePreviewState<MineShaftStats>>;
+  warehouse: {
+    state: WarehouseState;
+    sellProgressSeconds: number;
+    storedOre: number;
+    capacity: number;
   };
-  currentValues: {
-    mineShaft: MineShaftStats; // For compatibility
-    elevator: ElevatorStats;
-    warehouse: WarehouseStats;
-    mineShafts: Record<number, MineShaftStats>;
-  };
-  baseValues: {
-    mineShaft: MineShaftStats; // For compatibility
-    elevator: ElevatorStats;
-    warehouse: WarehouseStats;
-    mineShafts: Record<number, MineShaftStats>;
-  };
+  mineShafts: Record<number, MineShaftRuntimeState>;
+}
+
+export interface MineStateSnapshot {
+  mineId: MineId;
+  displayName: string;
+  isUnlocked: boolean;
+  unlockCost: number;
+  prestigeLevel: number;
+  prestigeData: MinePrestigeData[];
+  currentPrestigeMultiplier: number;
+  mineMultiplier: number;
+  pendingOfflineCash: number;
+  pendingOfflineSeconds: number;
+  pendingOfflineOreSold: number;
+  levels: GameLevelsState;
+  resources: GameResourcesState;
+  currentValues: GameCurrentValuesState;
+  baseValues: GameCurrentValuesState;
   managers: ManagerSystemState;
   blockades: Record<string, BlockadeRuntimeState>;
-  entities: {
-    mineShaft: MineShaftRuntimeState; // For compatibility
-    elevator: {
-      state: ElevatorState;
-      carriedOre: number;
-      capacity: number;
-      remainingTripSeconds: number;
-    };
-    warehouse: {
-      state: WarehouseState;
-      sellProgressSeconds: number;
-      storedOre: number;
-      capacity: number;
-    };
-    mineShafts: Record<number, MineShaftRuntimeState>;
-  };
+  entities: GameEntitiesState;
+  lastActiveTime: number | null;
+}
+
+export interface GameState {
+  activeMineId: MineId;
+  cash: number;
+  mines: Record<MineId, MineStateSnapshot>;
+  timeSeconds: number;
+  money: number;
+  levels: GameLevelsState;
+  resources: GameResourcesState;
+  upgrades: GameUpgradesState;
+  currentValues: GameCurrentValuesState;
+  baseValues: GameCurrentValuesState;
+  managers: ManagerSystemState;
+  blockades: Record<string, BlockadeRuntimeState>;
+  entities: GameEntitiesState;
 }

@@ -1,0 +1,74 @@
+{
+  "mines": [
+    {
+      "mineId": "coal",
+      "displayName": "Coal Mine",
+      "unlockCost": 0,
+      "prestigeLevels": [
+        { "prestigeLevel": 0, "cost": 0, "multiplier": 1 },
+        { "prestigeLevel": 1, "cost": 2.33e+19, "multiplier": 4 },
+        { "prestigeLevel": 2, "cost": 5.76e+43, "multiplier": 20 },
+        { "prestigeLevel": 3, "cost": 9.13e+59, "multiplier": 30 },
+        { "prestigeLevel": 4, "cost": 7.02e+71, "multiplier": 45 },
+        { "prestigeLevel": 5, "cost": 1.1e+77, "multiplier": 60 },
+        { "prestigeLevel": 6, "cost": 2.3e+99, "multiplier": 145 }
+      ]
+    },
+    {
+      "mineId": "gold",
+      "displayName": "Gold Mine",
+      "unlockCost": 7.68e+16,
+      "prestigeLevels": [
+        { "prestigeLevel": 0, "cost": 7.68e+16, "multiplier": 2 },
+        { "prestigeLevel": 1, "cost": 1.42e+23, "multiplier": 8 },
+        { "prestigeLevel": 2, "cost": 6.89e+55, "multiplier": 28 },
+        { "prestigeLevel": 3, "cost": 1.32e+70, "multiplier": 42 },
+        { "prestigeLevel": 4, "cost": 4.2e+78, "multiplier": 63 },
+        { "prestigeLevel": 5, "cost": 2.7e+85, "multiplier": 90 },
+        { "prestigeLevel": 6, "cost": 8.1e+100, "multiplier": 154 }
+      ]
+    },
+    {
+      "mineId": "ruby",
+      "displayName": "Ruby Mine",
+      "unlockCost": 6.14e+21,
+      "prestigeLevels": [
+        { "prestigeLevel": 0, "cost": 6.14e+21, "multiplier": 6 },
+        { "prestigeLevel": 1, "cost": 5.8e+30, "multiplier": 12 },
+        { "prestigeLevel": 2, "cost": 3.32e+63, "multiplier": 33 },
+        { "prestigeLevel": 3, "cost": 4.62e+75, "multiplier": 52 },
+        { "prestigeLevel": 4, "cost": 3.21e+82, "multiplier": 76 },
+        { "prestigeLevel": 5, "cost": 8e+90, "multiplier": 80 },
+        { "prestigeLevel": 6, "cost": 5.9e+101, "multiplier": 150 }
+      ]
+    },
+    {
+      "mineId": "diamond",
+      "displayName": "Diamond Mine",
+      "unlockCost": 3.68e+26,
+      "prestigeLevels": [
+        { "prestigeLevel": 0, "cost": 3.68e+26, "multiplier": 10 },
+        { "prestigeLevel": 1, "cost": 2.4e+38, "multiplier": 17 },
+        { "prestigeLevel": 2, "cost": 1.66e+68, "multiplier": 38 },
+        { "prestigeLevel": 3, "cost": 9.54e+76, "multiplier": 57 },
+        { "prestigeLevel": 4, "cost": 4.56e+87, "multiplier": 84 },
+        { "prestigeLevel": 5, "cost": 1.1e+95, "multiplier": 120 },
+        { "prestigeLevel": 6, "cost": 3.3e+102, "multiplier": 158 }
+      ]
+    },
+    {
+      "mineId": "emerald",
+      "displayName": "Emerald Mine",
+      "unlockCost": 4.91e+32,
+      "prestigeLevels": [
+        { "prestigeLevel": 0, "cost": 4.91e+32, "multiplier": 14 },
+        { "prestigeLevel": 1, "cost": 9.8e+50, "multiplier": 24 },
+        { "prestigeLevel": 2, "cost": 8.81e+73, "multiplier": 48 },
+        { "prestigeLevel": 3, "cost": 3.24e+80, "multiplier": 70 },
+        { "prestigeLevel": 4, "cost": 3.14e+92, "multiplier": 100 },
+        { "prestigeLevel": 5, "cost": 1.5e+97, "multiplier": 140 },
+        { "prestigeLevel": 6, "cost": 1.7e+103, "multiplier": 162 }
+      ]
+    }
+  ]
+}

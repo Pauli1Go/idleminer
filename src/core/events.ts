@@ -16,7 +16,8 @@ export type SimulationCommandName =
   | "assignManager"
   | "unassignManager"
   | "activateManagerAbility"
-  | "removeDepthBlockade";
+  | "removeDepthBlockade"
+  | "collectMineOfflineCash";
 
 export type SimulationCommandRejectionReason =
   | "busy"
@@ -46,13 +47,18 @@ export type SimulationActionFailureReason =
   | "blockade_not_reachable"
   | "previous_depth_incomplete"
   | "invalid_blockade"
-  | "already_removing";
+  | "already_removing"
+  | "invalid_mine"
+  | "mine_locked"
+  | "mine_already_unlocked"
+  | "max_prestige_reached";
 
 export type SimulationEvent =
   | {
       sequence: number;
       timeSeconds: number;
       type: "miningCycleStarted";
+      mineId?: string;
       shaftId: number;
       durationSeconds: number;
       storedOre: number;
@@ -87,12 +93,14 @@ export type SimulationEvent =
       action: string;
       reason: SimulationActionFailureReason;
       message: string;
+      mineId?: string;
       shaftId?: number;
     }
   | {
       sequence: number;
       timeSeconds: number;
       type: "oreProduced";
+      mineId?: string;
       shaftId: number;
       amount: number;
       storedOre: number;
@@ -150,6 +158,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "upgradePurchased";
+      mineId?: string;
       target: UpgradeTarget;
       shaftId?: number;
       previousLevel: number;
@@ -162,6 +171,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "mineShaftUpgradePurchased";
+      mineId?: string;
       shaftId: number;
       previousLevel: number;
       currentLevel: number;
@@ -173,6 +183,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "statsChanged";
+      mineId?: string;
       target: UpgradeTarget;
       shaftId?: number;
       previousStats: MineShaftStats | ElevatorStats | WarehouseStats;
@@ -182,6 +193,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "storageChanged";
+      mineId?: string;
       storageId: StorageId;
       shaftId?: number;
       previousAmount: number;
@@ -193,6 +205,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "mineShaftStorageChanged";
+      mineId?: string;
       shaftId: number;
       previousAmount: number;
       currentAmount: number;
@@ -203,8 +216,59 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "mineShaftUnlocked";
+      mineId?: string;
       shaftId: number;
       unlockCost: number;
+      currentMoney: number;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "mineUnlocked";
+      mineId: string;
+      unlockCost: number;
+      currentMoney: number;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "activeMineChanged";
+      previousMineId: string;
+      mineId: string;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "minePrestiged";
+      mineId: string;
+      previousPrestigeLevel: number;
+      currentPrestigeLevel: number;
+      previousMultiplier: number;
+      currentMultiplier: number;
+      cost: number;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "mineStatsChanged";
+      mineId: string;
+      previousStats: {
+        isUnlocked: boolean;
+        prestigeLevel: number;
+        mineMultiplier: number;
+      };
+      currentStats: {
+        isUnlocked: boolean;
+        prestigeLevel: number;
+        mineMultiplier: number;
+      };
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "mineOfflineCashCollected";
+      mineId: string;
+      amount: number;
       currentMoney: number;
     }
   | {
@@ -224,6 +288,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "managerAssignedToShaft";
+      mineId?: string;
       manager: ManagerState;
       shaftId: number;
     }
@@ -238,6 +303,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "managerUnassignedFromShaft";
+      mineId?: string;
       manager: ManagerState;
       shaftId: number;
     }
@@ -269,6 +335,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "elevatorArrivedAtShaft";
+      mineId?: string;
       shaftId: number;
       carriedOre: number;
     }
@@ -276,6 +343,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "elevatorLoadedFromShaft";
+      mineId?: string;
       shaftId: number;
       amount: number;
       carriedOre: number;
@@ -285,6 +353,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "elevatorSkippedShaft";
+      mineId?: string;
       shaftId: number;
       reason: string;
     }
@@ -304,6 +373,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "automationStateChanged";
+      mineId?: string;
       area: ManagerArea;
       automated: boolean;
       managerId: string | null;
@@ -313,6 +383,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "depthBlockadeRemovalStarted";
+      mineId?: string;
       blockadeId: string;
       removalCost: number;
       durationSeconds: number;
@@ -321,6 +392,7 @@ export type SimulationEvent =
       sequence: number;
       timeSeconds: number;
       type: "depthBlockadeRemoved";
+      mineId?: string;
       blockadeId: string;
     }
   | {

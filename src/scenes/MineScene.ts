@@ -21,6 +21,10 @@ import buttonPanelUrl from "../../assets/ui/button_panel.png";
 import coinIconUrl from "../../assets/ui/coin_icon.png";
 import mapButtonIconUrl from "../../assets/ui/map_button_icon.png";
 import oreIconUrl from "../../assets/ui/ore_icon.png";
+import goldOreIconUrl from "../../assets/other mines/gold/ui/ore_icon.png";
+import rubyOreIconUrl from "../../assets/other mines/ruby/ui/ore_icon.png";
+import diamondOreIconUrl from "../../assets/other mines/diamond/ui/ore_icon.png";
+import emeraldOreIconUrl from "../../assets/other mines/emerald/ui/ore_icon.png";
 import upgradeArrowIconUrl from "../../assets/ui/upgrade_arrow_icon.png";
 import abilityCapacityBoostUrl from "../../assets/ui/abilities/ability_capacity_boost.png";
 import abilityCostReductionUrl from "../../assets/ui/abilities/ability_cost_reduction.png";
@@ -60,6 +64,7 @@ import warehousePileEmptyUrl from "../../assets/world/warehouse_storage_pile_emp
 import warehousePileFullUrl from "../../assets/world/warehouse_storage_pile_coal_full.png";
 import warehousePileSmallUrl from "../../assets/world/warehouse_storage_pile_coal_small.png";
 import {
+  DEFAULT_ACTIVE_MINE_ID,
   getElevatorSpeedMultiplier,
   getManagerHireCost,
   getValidAbilityTypesForArea,
@@ -69,6 +74,7 @@ import {
   type ManagerAbilityType,
   type ManagerArea,
   type ManagerRank,
+  type MineId,
   type ManagerState,
   type SaveGameRepository,
   type SimulationEvent,
@@ -78,6 +84,7 @@ import {
 import { formatLargeNumber, formatCurrency, formatDuration, formatSignificantNumber } from "../core/formatters.ts";
 import { SimulationViewModel, type SimulationFrame } from "../game/SimulationViewModel.ts";
 import { IS_DEBUG } from "../debug/config.ts";
+import { LOADING_SPLASH_KEY } from "./BootScene.ts";
 
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 720;
@@ -214,6 +221,18 @@ const MAP_MINE_AREAS = [
   { key: "diamond", label: "Diamantmine", color: 0x7ed7ff, rect: { x: 0.62, y: 0.33, width: 0.30, height: 0.33 } },
   { key: "emerald", label: "Smaragdmine", color: 0x34c867, rect: { x: 0.36, y: 0.59, width: 0.30, height: 0.30 } }
 ] as const;
+const MAP_INFO_PANEL_MARGIN = 24;
+const MAP_INFO_PANEL_X = 884;
+const MAP_INFO_PANEL_Y = MAP_INFO_PANEL_MARGIN;
+const MAP_INFO_PANEL_WIDTH = GAME_WIDTH - MAP_INFO_PANEL_X - MAP_INFO_PANEL_MARGIN;
+const MAP_INFO_PANEL_HEIGHT = GAME_HEIGHT - MAP_INFO_PANEL_MARGIN * 2;
+const MAP_INFO_ROW_HEIGHT = 108;
+const MAP_INFO_ROW_GAP = 8;
+const MAP_COLLECT_MARKER_WIDTH = 142;
+const MAP_COLLECT_MARKER_HEIGHT = 42;
+const MAP_LOCK_BUTTON_WIDTH = 158;
+const MAP_LOCK_BUTTON_HEIGHT = 58;
+const MINE_SWITCH_LOADING_DEPTH = MAP_VIEW_DEPTH + 220;
 
 const MANAGER_SLOT_WIDTH = 220;
 const MANAGER_SLOT_HEIGHT = 118;
@@ -238,6 +257,334 @@ const managerSlotLayout = {
   warehouse: { x: 18, y: 226, label: "Warehouse" },
   elevator: { x: 526, y: 72, label: "Elevator" }
 } satisfies Record<"warehouse" | "elevator", { x: number; y: number; label: string }>;
+
+const mineSpecificAssetManifest = {
+  // Gold
+  "background-underground-depth-2-gold": new URL(
+    "../../assets/other mines/gold/backgrounds/background_underground_deph_2.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-3-gold": new URL(
+    "../../assets/other mines/gold/backgrounds/background_underground_deph_3.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-4-gold": new URL(
+    "../../assets/other mines/gold/backgrounds/background_underground_deph_4.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-5-gold": new URL(
+    "../../assets/other mines/gold/backgrounds/background_underground_deph_5.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-6-gold": new URL(
+    "../../assets/other mines/gold/backgrounds/background_underground_deph_6.png",
+    import.meta.url
+  ).href,
+  "miner-carry-gold": new URL("../../assets/other mines/gold/characters/miner_worker_carry_bag_level1.png", import.meta.url)
+    .href,
+  "miner-drop-gold": new URL("../../assets/other mines/gold/characters/miner_worker_drop_bag_level1.png", import.meta.url)
+    .href,
+  "miner-pickaxe-02-gold": new URL(
+    "../../assets/other mines/gold/characters/miner_worker_pickaxe_02_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-carry-gold": new URL(
+    "../../assets/other mines/gold/characters/warehouse_worker_carry_gold_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-sell-gold": new URL(
+    "../../assets/other mines/gold/characters/warehouse_worker_sell_level1.png",
+    import.meta.url
+  ).href,
+  "elevator-cabin-loaded-gold": new URL(
+    "../../assets/other mines/gold/world/elevator_cabin_loaded_gold_level1.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-gold": new URL("../../assets/other mines/gold/world/mine_shaft_back_wall_level1.png", import.meta.url)
+    .href,
+  "mine-shaft-back-wall-level2-gold": new URL(
+    "../../assets/other mines/gold/world/mine_shaft_back_wall_level2.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-level3-gold": new URL(
+    "../../assets/other mines/gold/world/mine_shaft_back_wall_level3.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-small-gold": new URL(
+    "../../assets/other mines/gold/world/mine_shaft_pickup_box_small_level1.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-full-gold": new URL(
+    "../../assets/other mines/gold/world/mine_shaft_pickup_box_full_level1.png",
+    import.meta.url
+  ).href,
+  "ore-deposit-gold": new URL("../../assets/other mines/gold/world/gold_deposit_small_level1.png", import.meta.url).href,
+  "warehouse-building-gold": new URL("../../assets/other mines/gold/world/warehouse_building_level1.png", import.meta.url)
+    .href,
+  "warehouse-pile-full-gold": new URL(
+    "../../assets/other mines/gold/world/warehouse_storage_pile_gold_full.png",
+    import.meta.url
+  ).href,
+  "warehouse-pile-small-gold": new URL(
+    "../../assets/other mines/gold/world/warehouse_storage_pile_gold_small.png",
+    import.meta.url
+  ).href,
+
+  // Ruby
+  "background-surface-ruby": new URL("../../assets/other mines/ruby/backgrounds/background_surface_clean.png", import.meta.url)
+    .href,
+  "background-underground-ruby": new URL(
+    "../../assets/other mines/ruby/backgrounds/background_underground_clean.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-2-ruby": new URL(
+    "../../assets/other mines/ruby/backgrounds/background_underground_deph_2.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-3-ruby": new URL(
+    "../../assets/other mines/ruby/backgrounds/background_underground_deph_3.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-4-ruby": new URL(
+    "../../assets/other mines/ruby/backgrounds/background_underground_deph_4.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-5-ruby": new URL(
+    "../../assets/other mines/ruby/backgrounds/background_underground_deph_5.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-6-ruby": new URL(
+    "../../assets/other mines/ruby/backgrounds/background_underground_deph_6.png",
+    import.meta.url
+  ).href,
+  "miner-carry-ruby": new URL("../../assets/other mines/ruby/characters/miner_worker_carry_bag_level1.png", import.meta.url)
+    .href,
+  "miner-drop-ruby": new URL("../../assets/other mines/ruby/characters/miner_worker_drop_bag_level1.png", import.meta.url)
+    .href,
+  "miner-pickaxe-02-ruby": new URL(
+    "../../assets/other mines/ruby/characters/miner_worker_pickaxe_02_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-carry-ruby": new URL(
+    "../../assets/other mines/ruby/characters/warehouse_worker_carry_ruby_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-sell-ruby": new URL(
+    "../../assets/other mines/ruby/characters/warehouse_worker_sell_level1.png",
+    import.meta.url
+  ).href,
+  "elevator-cabin-loaded-ruby": new URL(
+    "../../assets/other mines/ruby/world/elevator_cabin_loaded_ruby_level1.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-ruby": new URL("../../assets/other mines/ruby/world/mine_shaft_back_wall_level1.png", import.meta.url)
+    .href,
+  "mine-shaft-back-wall-level2-ruby": new URL(
+    "../../assets/other mines/ruby/world/mine_shaft_back_wall_level2.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-level3-ruby": new URL(
+    "../../assets/other mines/ruby/world/mine_shaft_back_wall_level3.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-small-ruby": new URL(
+    "../../assets/other mines/ruby/world/mine_shaft_pickup_box_small_level1.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-full-ruby": new URL(
+    "../../assets/other mines/ruby/world/mine_shaft_pickup_box_full_level1.png",
+    import.meta.url
+  ).href,
+  "ore-deposit-ruby": new URL("../../assets/other mines/ruby/world/ruby_deposit_small_level1.png", import.meta.url).href,
+  "warehouse-building-ruby": new URL("../../assets/other mines/ruby/world/warehouse_building_level1.png", import.meta.url)
+    .href,
+  "warehouse-pile-full-ruby": new URL(
+    "../../assets/other mines/ruby/world/warehouse_storage_pile_ruby_full.png",
+    import.meta.url
+  ).href,
+  "warehouse-pile-small-ruby": new URL(
+    "../../assets/other mines/ruby/world/warehouse_storage_pile_ruby_small.png",
+    import.meta.url
+  ).href,
+
+  // Diamond
+  "background-surface-diamond": new URL(
+    "../../assets/other mines/diamond/backgrounds/background_surface_clean.png",
+    import.meta.url
+  ).href,
+  "background-underground-diamond": new URL(
+    "../../assets/other mines/diamond/backgrounds/background_underground_clean.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-2-diamond": new URL(
+    "../../assets/other mines/diamond/backgrounds/background_underground_deph_2.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-3-diamond": new URL(
+    "../../assets/other mines/diamond/backgrounds/background_underground_deph_3.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-4-diamond": new URL(
+    "../../assets/other mines/diamond/backgrounds/background_underground_deph_4.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-5-diamond": new URL(
+    "../../assets/other mines/diamond/backgrounds/background_underground_deph_5.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-6-diamond": new URL(
+    "../../assets/other mines/diamond/backgrounds/background_underground_deph_6.png",
+    import.meta.url
+  ).href,
+  "miner-carry-diamond": new URL(
+    "../../assets/other mines/diamond/characters/miner_worker_carry_bag_level1.png",
+    import.meta.url
+  ).href,
+  "miner-drop-diamond": new URL("../../assets/other mines/diamond/characters/miner_worker_drop_bag_level1.png", import.meta.url)
+    .href,
+  "miner-pickaxe-02-diamond": new URL(
+    "../../assets/other mines/diamond/characters/miner_worker_pickaxe_02_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-carry-diamond": new URL(
+    "../../assets/other mines/diamond/characters/warehouse_worker_carry_diamond_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-sell-diamond": new URL(
+    "../../assets/other mines/diamond/characters/warehouse_worker_sell_level1.png",
+    import.meta.url
+  ).href,
+  "elevator-cabin-loaded-diamond": new URL(
+    "../../assets/other mines/diamond/world/elevator_cabin_loaded_diamond_level1.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-diamond": new URL(
+    "../../assets/other mines/diamond/world/mine_shaft_back_wall_level1.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-level2-diamond": new URL(
+    "../../assets/other mines/diamond/world/mine_shaft_back_wall_level2.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-level3-diamond": new URL(
+    "../../assets/other mines/diamond/world/mine_shaft_back_wall_level3.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-small-diamond": new URL(
+    "../../assets/other mines/diamond/world/mine_shaft_pickup_box_small_level1.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-full-diamond": new URL(
+    "../../assets/other mines/diamond/world/mine_shaft_pickup_box_full_level1.png",
+    import.meta.url
+  ).href,
+  "ore-deposit-diamond": new URL(
+    "../../assets/other mines/diamond/world/diamond_deposit_small_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-building-diamond": new URL(
+    "../../assets/other mines/diamond/world/warehouse_building_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-pile-full-diamond": new URL(
+    "../../assets/other mines/diamond/world/warehouse_storage_pile_diamond_full.png",
+    import.meta.url
+  ).href,
+  "warehouse-pile-small-diamond": new URL(
+    "../../assets/other mines/diamond/world/warehouse_storage_pile_diamond_small.png",
+    import.meta.url
+  ).href,
+
+  // Emerald
+  "background-surface-emerald": new URL(
+    "../../assets/other mines/emerald/backgrounds/background_surface_clean.png",
+    import.meta.url
+  ).href,
+  "background-underground-emerald": new URL(
+    "../../assets/other mines/emerald/backgrounds/background_underground_clean.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-2-emerald": new URL(
+    "../../assets/other mines/emerald/backgrounds/background_underground_deph_2.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-3-emerald": new URL(
+    "../../assets/other mines/emerald/backgrounds/background_underground_deph_3.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-4-emerald": new URL(
+    "../../assets/other mines/emerald/backgrounds/background_underground_deph_4.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-5-emerald": new URL(
+    "../../assets/other mines/emerald/backgrounds/background_underground_deph_5.png",
+    import.meta.url
+  ).href,
+  "background-underground-depth-6-emerald": new URL(
+    "../../assets/other mines/emerald/backgrounds/background_underground_deph_6.png",
+    import.meta.url
+  ).href,
+  "miner-carry-emerald": new URL(
+    "../../assets/other mines/emerald/characters/miner_worker_carry_bag_level1.png",
+    import.meta.url
+  ).href,
+  "miner-drop-emerald": new URL(
+    "../../assets/other mines/emerald/characters/miner_worker_drop_bag_level1.png",
+    import.meta.url
+  ).href,
+  "miner-pickaxe-02-emerald": new URL(
+    "../../assets/other mines/emerald/characters/miner_worker_pickaxe_02_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-carry-emerald": new URL(
+    "../../assets/other mines/emerald/characters/warehouse_worker_carry_emerald_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-worker-sell-emerald": new URL(
+    "../../assets/other mines/emerald/characters/warehouse_worker_sell_level1.png",
+    import.meta.url
+  ).href,
+  "elevator-cabin-loaded-emerald": new URL(
+    "../../assets/other mines/emerald/world/elevator_cabin_loaded_emerald_level1.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-emerald": new URL(
+    "../../assets/other mines/emerald/world/mine_shaft_back_wall_level1.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-level2-emerald": new URL(
+    "../../assets/other mines/emerald/world/mine_shaft_back_wall_level2.png",
+    import.meta.url
+  ).href,
+  "mine-shaft-back-wall-level3-emerald": new URL(
+    "../../assets/other mines/emerald/world/mine_shaft_back_wall_level3.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-small-emerald": new URL(
+    "../../assets/other mines/emerald/world/mine_shaft_pickup_box_small_level1.png",
+    import.meta.url
+  ).href,
+  "mine-pickup-full-emerald": new URL(
+    "../../assets/other mines/emerald/world/mine_shaft_pickup_box_full_level1.png",
+    import.meta.url
+  ).href,
+  "ore-deposit-emerald": new URL(
+    "../../assets/other mines/emerald/world/emerald_deposit_small_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-building-emerald": new URL(
+    "../../assets/other mines/emerald/world/warehouse_building_level1.png",
+    import.meta.url
+  ).href,
+  "warehouse-pile-full-emerald": new URL(
+    "../../assets/other mines/emerald/world/warehouse_storage_pile_emerald_full.png",
+    import.meta.url
+  ).href,
+  "warehouse-pile-small-emerald": new URL(
+    "../../assets/other mines/emerald/world/warehouse_storage_pile_emerald_small.png",
+    import.meta.url
+  ).href
+} satisfies Record<string, string>;
 
 export const assetManifest = {
   "map-water-texture": mapWaterTextureUrl,
@@ -268,7 +615,7 @@ export const assetManifest = {
   "mine-pickup-small": mineShaftPickupSmallUrl,
   "mine-pickup-full": mineShaftPickupFullUrl,
   "island-map-regions": islandMapRegionsUrl,
-  "coal-deposit": coalDepositUrl,
+  "ore-deposit": coalDepositUrl,
   "miner-idle": minerIdleUrl,
   "miner-pickaxe-01": minerPickaxe01Url,
   "miner-pickaxe-02": minerPickaxe02Url,
@@ -281,6 +628,11 @@ export const assetManifest = {
   "coin-icon": coinIconUrl,
   "map-button-icon": mapButtonIconUrl,
   "ore-icon": oreIconUrl,
+  "ore-icon-coal": oreIconUrl,
+  "ore-icon-gold": goldOreIconUrl,
+  "ore-icon-ruby": rubyOreIconUrl,
+  "ore-icon-diamond": diamondOreIconUrl,
+  "ore-icon-emerald": emeraldOreIconUrl,
   "upgrade-arrow-icon": upgradeArrowIconUrl,
   "manager-slot-empty": managerAssignSlotEmptyUrl,
   "manager-slot-left-empty": managerAssignSlotLeftEmptyUrl,
@@ -298,7 +650,8 @@ export const assetManifest = {
   "ability-loading-speed": abilityLoadingSpeedUrl,
   "ability-movement-speed": abilityMovementSpeedUrl,
   "ability-capacity-boost": abilityCapacityBoostUrl,
-  "ability-cost-reduction": abilityCostReductionUrl
+  "ability-cost-reduction": abilityCostReductionUrl,
+  ...mineSpecificAssetManifest
 } satisfies Record<string, string>;
 
 interface MiniUpgradeCardUi {
@@ -390,6 +743,43 @@ interface ManagerPanelAssignedUi {
   abilityIcon: Phaser.GameObjects.Image;
 }
 
+interface MapMineAreaUi {
+  mineId: MineId;
+  bounds: Phaser.Geom.Rectangle;
+  lockContainer: Phaser.GameObjects.Container;
+  lockBg: Phaser.GameObjects.Image;
+  lockText: Phaser.GameObjects.Text;
+  priceText: Phaser.GameObjects.Text;
+  lockZone: Phaser.GameObjects.Zone;
+  markerContainer: Phaser.GameObjects.Container;
+  markerBg: Phaser.GameObjects.Graphics;
+  markerText: Phaser.GameObjects.Text;
+  markerZone: Phaser.GameObjects.Zone;
+  areaZone: Phaser.GameObjects.Zone;
+}
+
+interface MapDetailPanelUi {
+  frame: Phaser.GameObjects.Graphics;
+  titleText: Phaser.GameObjects.Text;
+  rows: MapMineInfoRowUi[];
+}
+
+interface MapMineInfoRowUi {
+  mineId: MineId;
+  frame: Phaser.GameObjects.Graphics;
+  oreIcon: Phaser.GameObjects.Image;
+  nameText: Phaser.GameObjects.Text;
+  statusText: Phaser.GameObjects.Text;
+  productionText: Phaser.GameObjects.Text;
+  prestigeText: Phaser.GameObjects.Text;
+  collectText: Phaser.GameObjects.Text;
+  costIcon: Phaser.GameObjects.Image;
+  costText: Phaser.GameObjects.Text;
+  prestigeButtonImage: Phaser.GameObjects.Image;
+  prestigeButtonText: Phaser.GameObjects.Text;
+  prestigeButtonZone: Phaser.GameObjects.Zone;
+}
+
 interface ManagerPanelContentContainer extends Phaser.GameObjects.Container {
   isManagerPanelContentContainer?: true;
   contentAreaY?: number;
@@ -417,7 +807,7 @@ interface MineShaftRowUi {
   floor: Phaser.GameObjects.Image;
   supports: Phaser.GameObjects.Image;
   pickupBox: Phaser.GameObjects.Image;
-  coalDeposit: Phaser.GameObjects.Image;
+  oreDeposit: Phaser.GameObjects.Image;
   miner: Phaser.GameObjects.Image;
   storageText: Phaser.GameObjects.Text;
   routeText: Phaser.GameObjects.Text;
@@ -508,11 +898,14 @@ export class MineScene extends Phaser.Scene {
   private mineShaftRows: Record<number, MineShaftRowUi> = {};
   private depthSections: DepthSectionUi[] = [];
   private depthBlockades: DepthBlockadeUi[] = [];
+  private surfaceBackground!: Phaser.GameObjects.Image;
+  private warehouseBuilding!: Phaser.GameObjects.Image;
   private elevatorShaftTop!: Phaser.GameObjects.Image;
   private elevatorShaftBottom!: Phaser.GameObjects.Image;
   private elevatorShaftMiddleSegments: Phaser.GameObjects.Image[] = [];
   private elevatorClickTarget!: WorldClickTargetUi;
   private elevatorCabin!: Phaser.GameObjects.Image;
+  private flowOreIcon!: Phaser.GameObjects.Image;
   private warehouseWorker!: Phaser.GameObjects.Image;
   private warehousePile!: Phaser.GameObjects.Image;
   private warehouseFeedback!: Phaser.GameObjects.Text;
@@ -535,6 +928,10 @@ export class MineScene extends Phaser.Scene {
   private managerPanelAssignedUi: ManagerPanelAssignedUi | null = null;
   private mapViewContainer: Phaser.GameObjects.Container | undefined;
   private mapMoneyText: Phaser.GameObjects.Text | undefined;
+  private mapMineAreaUi: MapMineAreaUi[] = [];
+  private mapDetailPanel: MapDetailPanelUi | undefined;
+  private mineSwitchLoadingContainer: Phaser.GameObjects.Container | undefined;
+  private mineSwitchLoadingTimer: Phaser.Time.TimerEvent | undefined;
   private latestState: GameState | undefined;
   private elevatorAnimationQueue: ElevatorAnimationStep[] = [];
   private activeElevatorAnimation:
@@ -555,6 +952,7 @@ export class MineScene extends Phaser.Scene {
   private uiInitialized = false;
   private activeBuyMode: UpgradeBuyMode = 1;
   private activeManagerAbilityTab: ManagerAbilityType | "all" = "all";
+  private appliedMineVisualId: MineId | null = null;
 
   constructor(balance: BalanceConfig, saveRepository?: SaveGameRepository) {
     super("MineScene");
@@ -579,6 +977,8 @@ export class MineScene extends Phaser.Scene {
   create(): void {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
     this.events.once(Phaser.Scenes.Events.DESTROY, this.handleShutdown, this);
+    const initialFrame = this.viewModel.getInitialFrame();
+    this.latestState = initialFrame.state;
     
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -593,7 +993,7 @@ export class MineScene extends Phaser.Scene {
     this.createDepthBlockades();
     this.createClickTargets();
     this.createUi();
-    this.applyFrame(this.viewModel.getInitialFrame(), 0);
+    this.applyFrame(initialFrame, 0);
     this.advanceElevatorAnimation(0);
 
     if (this.viewModel.offlineProgressResult !== null && this.viewModel.offlineProgressResult.offlineSeconds >= 60) {
@@ -611,7 +1011,6 @@ export class MineScene extends Phaser.Scene {
     const overlay = this.pinUi(
       this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7)
         .setDepth(900)
-        .setInteractive()
     );
 
     const panelWidth = 500;
@@ -645,24 +1044,29 @@ export class MineScene extends Phaser.Scene {
       color: "#dcecf1",
     }).setOrigin(0.5).setDepth(902));
 
+    const rowIconX = GAME_WIDTH / 2 - 88;
+    const rowTextX = GAME_WIDTH / 2 - 54;
+    const rowTextWidth = panelX + panelWidth - 52 - rowTextX;
     const coinIcon = this.pinUi(
-      this.add.image(GAME_WIDTH / 2 - 80, panelY + 150, "coin-icon").setDisplaySize(24, 24).setDepth(902)
+      this.add.image(rowIconX, panelY + 150, "coin-icon").setDisplaySize(24, 24).setDepth(902)
     );
-    const moneyText = this.pinUi(this.add.text(GAME_WIDTH / 2 - 50, panelY + 150, `+${formatCurrency(result.moneyEarned)}`, {
+    const moneyText = this.pinUi(this.add.text(rowTextX, panelY + 150, `+${formatCurrency(result.moneyEarned)}`, {
       fontFamily: UI_FONT_FAMILY,
       fontSize: "24px",
       fontStyle: "bold",
       color: "#4ee669",
     }).setOrigin(0, 0.5).setDepth(902));
+    fitTextToWidth(moneyText, rowTextWidth, [24, 22, 20, 18, 16]);
 
     const oreIcon = this.pinUi(
-      this.add.image(GAME_WIDTH / 2 - 80, panelY + 190, "ore-icon").setDisplaySize(24, 24).setDepth(902)
+      this.add.image(rowIconX, panelY + 190, getMapOreIconKey(this.getActiveMineId())).setDisplaySize(24, 24).setDepth(902)
     );
-    const oreText = this.pinUi(this.add.text(GAME_WIDTH / 2 - 50, panelY + 190, `${formatLargeNumber(result.oreSold)} ore sold`, {
+    const oreText = this.pinUi(this.add.text(rowTextX, panelY + 190, `${formatLargeNumber(result.oreSold)} ore sold`, {
       fontFamily: UI_FONT_FAMILY,
       fontSize: "20px",
       color: "#e6c94e",
     }).setOrigin(0, 0.5).setDepth(902));
+    fitTextToWidth(oreText, rowTextWidth, [20, 18, 16, 14]);
 
     const buttonWidth = 160;
     const buttonHeight = 40;
@@ -673,7 +1077,7 @@ export class MineScene extends Phaser.Scene {
     buttonBg.fillStyle(0x386641, 1);
     buttonBg.fillRoundedRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight, 8);
 
-    const buttonText = this.pinUi(this.add.text(buttonX, buttonY, "Continue", {
+    const buttonText = this.pinUi(this.add.text(buttonX, buttonY, "Collect", {
       fontFamily: UI_FONT_FAMILY,
       fontSize: "20px",
       fontStyle: "bold",
@@ -682,18 +1086,66 @@ export class MineScene extends Phaser.Scene {
 
     const buttonZone = this.pinUi(
       this.add.zone(buttonX, buttonY, buttonWidth, buttonHeight)
-        .setInteractive({ useHandCursor: true })
         .setDepth(903)
     );
 
     const objects = [overlay, panel, titleText, timeText, coinIcon, moneyText, oreIcon, oreText, buttonBg, buttonText, buttonZone];
+    let isClosed = false;
+    const collectAndClose = () => {
+      if (isClosed) {
+        return;
+      }
 
-    buttonZone.once("pointerdown", () => {
-      objects.forEach(obj => obj.destroy());
+      isClosed = true;
+      for (const mineId of this.getCollectableOfflineMineIds()) {
+        this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
+      }
+      this.viewModel.flushSave();
+      objects.forEach((obj) => obj.destroy());
+    };
+    const isInsidePanel = (pointer: Phaser.Input.Pointer) =>
+      pointer.x >= panelX &&
+      pointer.x <= panelX + panelWidth &&
+      pointer.y >= panelY &&
+      pointer.y <= panelY + panelHeight;
+
+    this.time.delayedCall(150, () => {
+      if (overlay.active) {
+        overlay.setInteractive();
+      }
+
+      if (buttonZone.active) {
+        buttonZone.setInteractive({ useHandCursor: true });
+      }
+    });
+
+    overlay.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (!isInsidePanel(pointer)) {
+        collectAndClose();
+      }
+    });
+
+    buttonZone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      collectAndClose();
     });
   }
 
+  private getCollectableOfflineMineIds(): MineId[] {
+    const state = this.latestState;
+
+    if (state === undefined) {
+      return [];
+    }
+
+    return Object.values(state.mines)
+      .filter((mine) => mine.isUnlocked && mine.pendingOfflineCash > Number.EPSILON)
+      .map((mine) => mine.mineId);
+  }
+
   private handleShutdown(): void {
+    this.hideMineSwitchLoading();
+
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     }
@@ -709,13 +1161,42 @@ export class MineScene extends Phaser.Scene {
       // We became visible again, calculate offline progress
       const result = this.viewModel.processOfflineProgress();
       if (result !== null && result.offlineSeconds >= 60) {
+        this.applyFrame(this.viewModel.getInitialFrame(), this.time.now);
         this.showOfflineProgressModal(result);
       }
     }
   };
 
+  private getActiveMineId(): MineId {
+    return this.latestState?.activeMineId ?? DEFAULT_ACTIVE_MINE_ID;
+  }
+
+  private refreshActiveMineTextures(state: GameState): void {
+    if (this.appliedMineVisualId === state.activeMineId) {
+      return;
+    }
+
+    this.appliedMineVisualId = state.activeMineId;
+    this.surfaceBackground.setTexture(getMineTextureKey(state.activeMineId, "background-surface"));
+    this.warehouseBuilding.setTexture(getMineTextureKey(state.activeMineId, "warehouse-building"));
+    this.flowOreIcon.setTexture(getMapOreIconKey(state.activeMineId));
+
+    for (const section of this.depthSections) {
+      section.background.setTexture(getDepthBackgroundKey(section.depthGroup, state.activeMineId));
+    }
+
+    for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
+      const row = this.mineShaftRows[shaftId];
+      row.backWall.setTexture(getMineBackWallTextureKey(state.activeMineId, shaftId));
+      row.oreDeposit.setTexture(getMineTextureKey(state.activeMineId, "ore-deposit"));
+    }
+  }
+
   private createWorld(): void {
-    this.add.image(GAME_WIDTH / 2, SURFACE_HEIGHT / 2, "background-surface").setDisplaySize(GAME_WIDTH, SURFACE_HEIGHT);
+    const activeMineId = this.getActiveMineId();
+    this.surfaceBackground = this.add
+      .image(GAME_WIDTH / 2, SURFACE_HEIGHT / 2, getMineTextureKey(activeMineId, "background-surface"))
+      .setDisplaySize(GAME_WIDTH, SURFACE_HEIGHT);
     this.depthSections = [];
 
     const totalDepthGroups = this.getTotalDepthGroups();
@@ -725,7 +1206,7 @@ export class MineScene extends Phaser.Scene {
       const bottomY = this.getDepthGroupBottomY(depthGroup);
       const height = Math.max(1, bottomY - topY);
       const background = this.add
-        .image(GAME_WIDTH / 2, topY + height / 2, getDepthBackgroundKey(depthGroup))
+        .image(GAME_WIDTH / 2, topY + height / 2, getDepthBackgroundKey(depthGroup, activeMineId))
         .setDisplaySize(DEPTH_SECTION_WIDTH, height)
         .setVisible(depthGroup === 1);
 
@@ -740,7 +1221,9 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createSurfaceObjects(): void {
-    this.add.image(WAREHOUSE_BUILDING_X, WAREHOUSE_BUILDING_Y, "warehouse-building").setDisplaySize(176, 144);
+    this.warehouseBuilding = this.add
+      .image(WAREHOUSE_BUILDING_X, WAREHOUSE_BUILDING_Y, getMineTextureKey(this.getActiveMineId(), "warehouse-building"))
+      .setDisplaySize(176, 144);
     this.warehousePile = this.add.image(WAREHOUSE_PILE_X, WAREHOUSE_PILE_Y, "warehouse-pile-empty").setDisplaySize(108, 68);
     this.warehouseWorker = this.add
       .image(WAREHOUSE_WORKER_HOME_X, WAREHOUSE_WORKER_Y, "warehouse-worker-idle")
@@ -784,7 +1267,9 @@ export class MineScene extends Phaser.Scene {
   private createDepthBlockades(): void {
     this.depthBlockades = [];
 
-    for (const blockade of Object.values(this.viewModel.getInitialFrame().state.blockades)) {
+    const initialState = this.latestState ?? this.viewModel.getInitialFrame().state;
+
+    for (const blockade of Object.values(initialState.blockades)) {
       const centerY = this.getBlockadeY(blockade.afterShaftId);
       const image = this.add
         .image(DEPTH_BLOCKADE_CENTER_X, centerY, "stone-blockade")
@@ -1147,15 +1632,12 @@ export class MineScene extends Phaser.Scene {
     const managerSlotY = backWallY - 58;
     const mineClickTop = backWallY - 84;
 
-    let backWallTexture = "mine-shaft-back-wall";
-    if (shaftId >= 21) {
-      backWallTexture = "mine-shaft-back-wall-level3";
-    } else if (shaftId >= 11) {
-      backWallTexture = "mine-shaft-back-wall-level2";
-    }
-
     const backWall = this.add
-      .image(MINE_SHAFT_CENTER_X, backWallY + MINE_SHAFT_BACK_WALL_VISUAL_OFFSET_Y, backWallTexture)
+      .image(
+        MINE_SHAFT_CENTER_X,
+        backWallY + MINE_SHAFT_BACK_WALL_VISUAL_OFFSET_Y,
+        getMineBackWallTextureKey(this.getActiveMineId(), shaftId)
+      )
       .setDisplaySize(MINE_SHAFT_BACK_WALL_WIDTH, MINE_SHAFT_BACK_WALL_HEIGHT);
     const floor = this.add
       .image(MINE_SHAFT_CENTER_X, floorY, "mine-shaft-floor")
@@ -1166,8 +1648,8 @@ export class MineScene extends Phaser.Scene {
     const pickupBox = this.add
       .image(MINE_PICKUP_BOX_X, pickupY, "mine-pickup-empty")
       .setDisplaySize(MINE_PICKUP_BOX_WIDTH, MINE_PICKUP_BOX_HEIGHT);
-    const coalDeposit = this.add
-      .image(COAL_DEPOSIT_X, depositY, "coal-deposit")
+    const oreDeposit = this.add
+      .image(COAL_DEPOSIT_X, depositY, getMineTextureKey(this.getActiveMineId(), "ore-deposit"))
       .setDisplaySize(COAL_DEPOSIT_WIDTH, COAL_DEPOSIT_HEIGHT);
     const miner = this.add
       .image(MINE_WORKER_MINE_X, workerY, "miner-idle")
@@ -1357,7 +1839,7 @@ export class MineScene extends Phaser.Scene {
       floor,
       supports,
       pickupBox,
-      coalDeposit,
+      oreDeposit,
       miner,
       storageText,
       routeText,
@@ -1458,8 +1940,11 @@ export class MineScene extends Phaser.Scene {
     );
 
     this.createBarPanel(FLOW_PANEL_X, FLOW_PANEL_Y, FLOW_PANEL_WIDTH, FLOW_PANEL_HEIGHT);
-    this.pinUi(
-      this.add.image(FLOW_PANEL_X + 24, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, "ore-icon").setDisplaySize(40, 40).setDepth(PINNED_UI_TEXT_DEPTH)
+    this.flowOreIcon = this.pinUi(
+      this.add
+        .image(FLOW_PANEL_X + 24, FLOW_PANEL_Y + FLOW_PANEL_HEIGHT / 2, getMapOreIconKey(this.getActiveMineId()))
+        .setDisplaySize(40, 40)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     this.productionTextsBoosted = [];
     this.productionTextsBase = [];
@@ -1613,27 +2098,269 @@ export class MineScene extends Phaser.Scene {
         .setDepth(MAP_VIEW_DEPTH + 1)
     );
 
-    for (const area of MAP_MINE_AREAS) {
-      const bounds = this.getMapMineAreaBounds(area.rect);
-      const isCoalArea = area.key === "coal";
-
-      if (isCoalArea) {
-        const zone = addMapObject(
-          this.add
-            .zone(bounds.x, bounds.y, bounds.width, bounds.height)
-            .setOrigin(0)
-            .setInteractive({ useHandCursor: true })
-            .setDepth(MAP_VIEW_DEPTH + 6)
-        );
-
-        zone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-          event.stopPropagation();
-          this.closeMapViewToCoalMine();
-        });
-      }
-    }
-
+    this.mapMineAreaUi = MAP_MINE_AREAS.map((area) => this.createMapMineArea(container, area));
+    this.createMapDetailPanel(container);
     this.createMapMoneyPanel(container);
+    this.refreshMapView(this.latestState);
+  }
+
+  private createMapMineArea(
+    container: Phaser.GameObjects.Container,
+    area: (typeof MAP_MINE_AREAS)[number]
+  ): MapMineAreaUi {
+    const addMapObject = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T): T => {
+      container.add(this.pinUi(gameObject));
+      return gameObject;
+    };
+    const mineId = area.key as MineId;
+    const bounds = this.getMapMineAreaBounds(area.rect);
+    const centerX = bounds.centerX;
+    const centerY = bounds.centerY;
+    const areaZone = addMapObject(
+      this.add
+        .zone(bounds.x, bounds.y, bounds.width, bounds.height)
+        .setOrigin(0)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(MAP_VIEW_DEPTH + 6)
+    );
+    const lockContainer = addMapObject(
+      this.add.container(centerX, centerY).setDepth(MAP_VIEW_DEPTH + 8)
+    );
+    const lockBg = this.add
+      .image(0, 0, "button-panel")
+      .setDisplaySize(MAP_LOCK_BUTTON_WIDTH, MAP_LOCK_BUTTON_HEIGHT);
+    const lockText = this.add
+      .text(-42, -1, "🔒", {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: "20px",
+        fontStyle: "700",
+        color: "#fff1c2",
+        stroke: "#2b1710",
+        strokeThickness: 4
+      })
+      .setOrigin(0.5);
+    const priceText = this.add
+      .text(20, -1, "", smallUiTextStyle(13, "#fff8de"))
+      .setOrigin(0.5);
+    const lockZone = addMapObject(
+      this.add
+        .zone(centerX, centerY, MAP_LOCK_BUTTON_WIDTH, MAP_LOCK_BUTTON_HEIGHT)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(MAP_VIEW_DEPTH + 12)
+    );
+    lockContainer.add([lockBg, lockText, priceText]);
+    lockContainer.setVisible(false);
+    lockZone.setVisible(false);
+
+    lockZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.applyFrame(this.viewModel.unlockMine(mineId), this.time.now);
+    });
+
+    const markerContainer = addMapObject(
+      this.add.container(centerX, bounds.y - 8).setDepth(MAP_VIEW_DEPTH + 7)
+    );
+    const markerBg = this.add.graphics();
+    const markerCoin = this.add.image(-MAP_COLLECT_MARKER_WIDTH / 2 + 18, 0, "coin-icon").setDisplaySize(30, 30);
+    const markerText = this.add
+      .text(16, -1, "", smallUiTextStyle(12, "#fff8de"))
+      .setOrigin(0.5);
+    const markerZone = addMapObject(
+      this.add
+        .zone(centerX, bounds.y - 8, MAP_COLLECT_MARKER_WIDTH, MAP_COLLECT_MARKER_HEIGHT)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(MAP_VIEW_DEPTH + 12)
+    );
+    markerZone.setVisible(false);
+
+    markerBg.fillStyle(0x244632, 0.96);
+    markerBg.fillRoundedRect(-MAP_COLLECT_MARKER_WIDTH / 2, -MAP_COLLECT_MARKER_HEIGHT / 2, MAP_COLLECT_MARKER_WIDTH, MAP_COLLECT_MARKER_HEIGHT, 15);
+    markerBg.lineStyle(1.5, 0xb8ff91, 0.86);
+    markerBg.strokeRoundedRect(-MAP_COLLECT_MARKER_WIDTH / 2 + 0.75, -MAP_COLLECT_MARKER_HEIGHT / 2 + 0.75, MAP_COLLECT_MARKER_WIDTH - 1.5, MAP_COLLECT_MARKER_HEIGHT - 1.5, 15);
+    markerContainer.add([markerBg, markerCoin, markerText]);
+    markerContainer.setVisible(false);
+    this.tweens.add({
+      targets: markerContainer,
+      y: bounds.y - 20,
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+      onUpdate: () => {
+        markerZone.setPosition(markerContainer.x, markerContainer.y);
+      }
+    });
+
+    markerZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.switchToMineFromMap(mineId, { showOfflineCashModal: true });
+    });
+
+    areaZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      const mine = this.latestState?.mines[mineId];
+
+      if (mine?.isUnlocked !== true) {
+        return;
+      }
+
+      this.switchToMineFromMap(mineId, { showOfflineCashModal: true });
+    });
+
+    return {
+      mineId,
+      bounds,
+      lockContainer,
+      lockBg,
+      lockText,
+      priceText,
+      lockZone,
+      markerContainer,
+      markerBg,
+      markerText,
+      markerZone,
+      areaZone
+    };
+  }
+
+  private createMapDetailPanel(container: Phaser.GameObjects.Container): void {
+    const addMapObject = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T): T => {
+      container.add(this.pinUi(gameObject));
+      return gameObject;
+    };
+    const frame = addMapObject(this.add.graphics().setDepth(MAP_VIEW_DEPTH + 8));
+    frame.fillStyle(0x14222c, 0.96);
+    frame.fillRoundedRect(MAP_INFO_PANEL_X, MAP_INFO_PANEL_Y, MAP_INFO_PANEL_WIDTH, MAP_INFO_PANEL_HEIGHT, 18);
+    frame.fillStyle(0xf0c66c, 0.96);
+    frame.fillRoundedRect(MAP_INFO_PANEL_X + 7, MAP_INFO_PANEL_Y + 7, MAP_INFO_PANEL_WIDTH - 14, 50, 14);
+    frame.fillStyle(0x203642, 0.98);
+    frame.fillRoundedRect(MAP_INFO_PANEL_X + 7, MAP_INFO_PANEL_Y + 66, MAP_INFO_PANEL_WIDTH - 14, MAP_INFO_PANEL_HEIGHT - 73, 14);
+    frame.lineStyle(2, 0xf1c96b, 0.92);
+    frame.strokeRoundedRect(MAP_INFO_PANEL_X + 1, MAP_INFO_PANEL_Y + 1, MAP_INFO_PANEL_WIDTH - 2, MAP_INFO_PANEL_HEIGHT - 2, 18);
+
+    const titleText = addMapObject(
+      this.add
+        .text(MAP_INFO_PANEL_X + 22, MAP_INFO_PANEL_Y + 19, "Start Continent", topBarTextStyle(20, "#4b2709"))
+        .setDepth(MAP_VIEW_DEPTH + 9)
+    );
+
+    const rows = MAP_MINE_AREAS.map((area, index) => {
+      const rowTop = MAP_INFO_PANEL_Y + 76 + index * (MAP_INFO_ROW_HEIGHT + MAP_INFO_ROW_GAP);
+      return this.createMapMineInfoRow(container, area.key as MineId, rowTop);
+    });
+
+    this.mapDetailPanel = {
+      frame,
+      titleText,
+      rows
+    };
+  }
+
+  private createMapMineInfoRow(
+    container: Phaser.GameObjects.Container,
+    mineId: MineId,
+    top: number
+  ): MapMineInfoRowUi {
+    const addMapObject = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T): T => {
+      container.add(this.pinUi(gameObject));
+      return gameObject;
+    };
+    const left = MAP_INFO_PANEL_X + 16;
+    const width = MAP_INFO_PANEL_WIDTH - 32;
+    const mineConfig = getMapMineConfig(mineId);
+    const frame = addMapObject(this.add.graphics().setDepth(MAP_VIEW_DEPTH + 9));
+    const oreIcon = addMapObject(
+      this.add
+        .image(left + 22, top + 25, getMapOreIconKey(mineId))
+        .setDisplaySize(34, 34)
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const nameText = addMapObject(
+      this.add
+        .text(left + 48, top + 9, mineConfig.label, smallUiTextStyle(13, "#fff6d8"))
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const statusText = addMapObject(
+      this.add
+        .text(left + width - 10, top + 10, "", smallUiTextStyle(10, "#dcecf1"))
+        .setOrigin(1, 0)
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const productionText = addMapObject(
+      this.add
+        .text(left + 48, top + 31, "", smallUiTextStyle(10, "#dcecf1"))
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const prestigeText = addMapObject(
+      this.add
+        .text(left + 14, top + 58, "", smallUiTextStyle(10, "#f6e8bb"))
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const collectText = addMapObject(
+      this.add
+        .text(left + 14, top + 77, "", smallUiTextStyle(10, "#bdd2d8"))
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const costIcon = addMapObject(
+      this.add
+        .image(left + width - 162, top + 83, "coin-icon")
+        .setDisplaySize(22, 22)
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const costText = addMapObject(
+      this.add
+        .text(left + width - 104, top + 82, "", smallUiTextStyle(10, "#fff8de"))
+        .setOrigin(0.5)
+        .setDepth(MAP_VIEW_DEPTH + 11)
+    );
+    const prestigeButtonImage = addMapObject(
+      this.add
+        .image(left + width - 42, top + 83, "button-panel")
+        .setDisplaySize(78, 26)
+        .setDepth(MAP_VIEW_DEPTH + 10)
+    );
+    const prestigeButtonText = addMapObject(
+      this.add
+        .text(left + width - 42, top + 82, "", smallUiTextStyle(10, "#fff8de"))
+        .setOrigin(0.5)
+        .setDepth(MAP_VIEW_DEPTH + 11)
+    );
+    const prestigeButtonZone = addMapObject(
+      this.add
+        .zone(left + width - 42, top + 83, 78, 26)
+      .setOrigin(0.5)
+        .setDepth(MAP_VIEW_DEPTH + 12)
+    );
+
+    frame.fillStyle(mineConfig.color, 0.22);
+    frame.fillRoundedRect(left, top, width, MAP_INFO_ROW_HEIGHT, 12);
+    frame.fillStyle(0x14222c, 0.58);
+    frame.fillRoundedRect(left + 4, top + 4, width - 8, MAP_INFO_ROW_HEIGHT - 8, 9);
+    frame.lineStyle(1.5, mineConfig.color, 0.78);
+    frame.strokeRoundedRect(left + 0.75, top + 0.75, width - 1.5, MAP_INFO_ROW_HEIGHT - 1.5, 12);
+
+    prestigeButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.handleMapPrestigeAction(mineId);
+    });
+
+    return {
+      mineId,
+      frame,
+      oreIcon,
+      nameText,
+      statusText,
+      productionText,
+      prestigeText,
+      collectText,
+      costIcon,
+      costText,
+      prestigeButtonImage,
+      prestigeButtonText,
+      prestigeButtonZone
+    };
   }
 
   private createMapMoneyPanel(container: Phaser.GameObjects.Container): void {
@@ -1672,12 +2399,467 @@ export class MineScene extends Phaser.Scene {
     fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
   }
 
-  private closeMapViewToCoalMine(): void {
+  private closeMapViewToMine(): void {
+    for (const ui of this.mapMineAreaUi) {
+      this.tweens.killTweensOf(ui.markerContainer);
+    }
+
     this.mapViewContainer?.destroy(true);
     this.mapViewContainer = undefined;
     this.mapMoneyText = undefined;
+    this.mapMineAreaUi = [];
+    this.mapDetailPanel = undefined;
     this.tweens.killTweensOf(this.cameras.main);
     this.cameras.main.scrollY = 0;
+  }
+
+  private refreshMapView(state: GameState | undefined): void {
+    if (this.mapViewContainer === undefined || state === undefined) {
+      return;
+    }
+
+    this.mapMoneyText?.setText(formatMoney(state.money));
+    if (this.mapMoneyText !== undefined) {
+      fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    }
+
+    for (const ui of this.mapMineAreaUi) {
+      const mine = state.mines[ui.mineId];
+      const pendingCash = mine?.pendingOfflineCash ?? 0;
+
+      if (mine === undefined) {
+        ui.lockContainer.setVisible(false);
+        ui.lockZone.setVisible(false).disableInteractive();
+        ui.priceText.setText("");
+        ui.markerContainer.setVisible(false);
+        ui.markerZone.setVisible(false).disableInteractive();
+        continue;
+      }
+
+      if (!mine.isUnlocked) {
+        const canUnlock = state.money + Number.EPSILON >= mine.unlockCost;
+        ui.lockContainer.setVisible(true);
+        ui.lockZone.setVisible(true);
+        ui.lockBg.setAlpha(canUnlock ? 1 : 0.72).setTint(canUnlock ? 0xffffff : 0x8c6c58);
+        ui.lockText.setAlpha(canUnlock ? 1 : 0.72);
+        ui.priceText.setColor(canUnlock ? "#fff8de" : "#e3c7aa");
+        ui.priceText.setText(formatMoney(mine.unlockCost));
+        fitTextToWidth(ui.priceText, MAP_LOCK_BUTTON_WIDTH - 74, [13, 12, 11, 10]);
+        ui.markerContainer.setVisible(false);
+        ui.markerZone.setVisible(false).disableInteractive();
+        ui.lockZone.setInteractive({ useHandCursor: canUnlock });
+        if (ui.lockZone.input) {
+          ui.lockZone.input.cursor = canUnlock ? "pointer" : "default";
+        }
+        continue;
+      }
+
+      ui.lockContainer.setVisible(false);
+      ui.lockZone.setVisible(false).disableInteractive();
+      const markerVisible = pendingCash > Number.EPSILON;
+      ui.markerContainer.setVisible(markerVisible);
+      if (markerVisible) {
+        ui.markerZone.setPosition(ui.markerContainer.x, ui.markerContainer.y);
+        ui.markerZone.setVisible(true);
+        ui.markerZone.setInteractive({ useHandCursor: true });
+      } else {
+        ui.markerZone.setVisible(false).disableInteractive();
+      }
+      ui.markerText.setText(formatMoney(pendingCash));
+      fitTextToWidth(ui.markerText, MAP_COLLECT_MARKER_WIDTH - 64, [12, 11, 10, 9]);
+    }
+
+    this.refreshMapDetailPanel(state);
+  }
+
+  private refreshMapDetailPanel(state: GameState): void {
+    const panel = this.mapDetailPanel;
+
+    if (panel === undefined) {
+      return;
+    }
+
+    for (const row of panel.rows) {
+      const mine = state.mines[row.mineId];
+
+      if (mine === undefined) {
+        continue;
+      }
+
+      const mineConfig = getMapMineConfig(row.mineId);
+      const isActive = row.mineId === state.activeMineId;
+      const nextPrestige = mine.prestigeData.find((entry) => entry.prestigeLevel === mine.prestigeLevel + 1);
+      const canUnlock = !mine.isUnlocked && state.money + Number.EPSILON >= mine.unlockCost;
+      const canPrestige = mine.isUnlocked && nextPrestige !== undefined && state.money + Number.EPSILON >= nextPrestige.cost;
+      const rowLeft = MAP_INFO_PANEL_X + 16;
+      const rowWidth = MAP_INFO_PANEL_WIDTH - 32;
+      const costValue = mine.isUnlocked ? nextPrestige?.cost : mine.unlockCost;
+      const costCanAfford = mine.isUnlocked ? canPrestige : canUnlock;
+      const showActionButton = mine.isUnlocked ? nextPrestige !== undefined : true;
+      const showCostIcon = costValue !== undefined;
+      const costTextCenterX = rowLeft + rowWidth - 116;
+      const costIconX = costTextCenterX - 52;
+      const pendingCashVisible = mine.pendingOfflineCash > Number.EPSILON && mine.pendingOfflineSeconds >= 60;
+
+      row.statusText
+        .setText(mine.isUnlocked ? (isActive ? "ACTIVE" : "UNLOCKED") : "LOCKED")
+        .setColor(mine.isUnlocked ? (isActive ? "#95f0bd" : "#dcecf1") : "#f08e7f");
+      const prestigeStars = "★".repeat(mine.prestigeLevel);
+      row.nameText.setText(prestigeStars.length > 0 ? `${mine.displayName}  ${prestigeStars}` : mine.displayName);
+      fitTextToWidth(row.nameText, 190, [13, 12, 11, 10]);
+      row.productionText.setText(mine.isUnlocked ? `Prod ${formatRate(getMapMineProductionRate(mine))}` : "Production locked");
+      fitTextToWidth(row.productionText, 200, [10, 9, 8]);
+      row.prestigeText.setText(
+        nextPrestige === undefined
+          ? `Prestige ${mine.prestigeLevel} · ${formatSignificantNumber(mine.currentPrestigeMultiplier)}x · MAX`
+          : `Prestige ${mine.prestigeLevel} · ${formatSignificantNumber(mine.currentPrestigeMultiplier)}x`
+      );
+      fitTextToWidth(row.prestigeText, 206, [10, 9, 8]);
+      row.collectText.setText(
+        mine.isUnlocked
+          ? pendingCashVisible
+            ? `Collect ${formatMoney(mine.pendingOfflineCash)}`
+            : "No offline cash yet"
+          : "Buy on island or here"
+      );
+      fitTextToWidth(row.collectText, 172, [10, 9, 8]);
+      row.costIcon
+        .setVisible(showCostIcon)
+        .setAlpha(costCanAfford || !showCostIcon ? 1 : 0.58)
+        .setPosition(costIconX, row.oreIcon.y + 58);
+      row.costText
+        .setText(costValue === undefined ? "MAX" : formatMoney(costValue))
+        .setColor(costValue === undefined ? "#bdd2d8" : costCanAfford ? "#fff8de" : "#e3c7aa")
+        .setPosition(costTextCenterX, row.oreIcon.y + 57);
+      fitTextToWidth(row.costText, mine.isUnlocked ? 86 : 124, [10, 9, 8]);
+
+      row.oreIcon.setTexture(getMapOreIconKey(row.mineId));
+      row.frame.clear();
+      row.frame.fillStyle(mineConfig.color, mine.isUnlocked ? 0.24 : 0.13);
+      row.frame.fillRoundedRect(MAP_INFO_PANEL_X + 16, row.oreIcon.y - 25, MAP_INFO_PANEL_WIDTH - 32, MAP_INFO_ROW_HEIGHT, 12);
+      row.frame.fillStyle(0x14222c, mine.isUnlocked ? 0.58 : 0.74);
+      row.frame.fillRoundedRect(MAP_INFO_PANEL_X + 20, row.oreIcon.y - 21, MAP_INFO_PANEL_WIDTH - 40, MAP_INFO_ROW_HEIGHT - 8, 9);
+      row.frame.lineStyle(isActive ? 2 : 1.5, isActive ? 0x95f0bd : mineConfig.color, mine.isUnlocked ? 0.84 : 0.44);
+      row.frame.strokeRoundedRect(MAP_INFO_PANEL_X + 16.75, row.oreIcon.y - 24.25, MAP_INFO_PANEL_WIDTH - 33.5, MAP_INFO_ROW_HEIGHT - 1.5, 12);
+
+      row.prestigeButtonText.setText(mine.isUnlocked ? "Prestige" : "Unlock");
+      row.prestigeButtonImage.setVisible(showActionButton);
+      row.prestigeButtonText.setVisible(showActionButton);
+      row.prestigeButtonZone.setVisible(showActionButton);
+      if (showActionButton) {
+        this.setWorldButtonEnabled(row.prestigeButtonImage, row.prestigeButtonText, row.prestigeButtonZone, mine.isUnlocked ? canPrestige : canUnlock, true);
+      } else {
+        row.prestigeButtonZone.disableInteractive();
+      }
+    }
+  }
+
+  private switchToMineFromMap(mineId: MineId, options: { showOfflineCashModal?: boolean } = {}): void {
+    const mine = this.latestState?.mines[mineId];
+
+    if (mine?.isUnlocked !== true) {
+      return;
+    }
+
+    const pendingCash = mine.pendingOfflineCash;
+    const pendingSeconds = mine.pendingOfflineSeconds;
+    const pendingOreSold = mine.pendingOfflineOreSold;
+    const mineWillChange = this.latestState?.activeMineId !== mineId;
+    const shouldShowOfflineCashModal =
+      options.showOfflineCashModal === true &&
+      pendingCash > Number.EPSILON &&
+      pendingSeconds >= 60;
+
+    if (mineWillChange) {
+      this.showMineSwitchLoading();
+    }
+
+    this.applyFrame(this.viewModel.setActiveMine(mineId), this.time.now);
+    this.closeMapViewToMine();
+
+    const finishSwitch = () => {
+      this.hideMineSwitchLoading();
+
+      if (shouldShowOfflineCashModal) {
+        this.showMineOfflineCashModal(mineId, {
+          offlineSeconds: pendingSeconds,
+          moneyEarned: pendingCash,
+          oreSold: pendingOreSold
+        });
+      }
+    };
+
+    if (mineWillChange) {
+      this.mineSwitchLoadingTimer = this.time.delayedCall(1000, finishSwitch);
+    } else {
+      finishSwitch();
+    }
+  }
+
+  private handleMapPrestigeAction(mineId: MineId): void {
+    const mine = this.latestState?.mines[mineId];
+    const nextPrestige = mine?.prestigeData.find((entry) => entry.prestigeLevel === mine.prestigeLevel + 1);
+
+    if (mine === undefined) {
+      return;
+    }
+
+    if (!mine.isUnlocked) {
+      this.applyFrame(this.viewModel.unlockMine(mineId), this.time.now);
+      return;
+    }
+
+    if (nextPrestige === undefined) {
+      return;
+    }
+
+    if ((this.latestState?.money ?? 0) + Number.EPSILON < nextPrestige.cost) {
+      this.applyFrame(this.viewModel.prestigeMine(mineId), this.time.now);
+      return;
+    }
+
+    this.showPrestigeConfirmModal(mineId, nextPrestige.cost);
+  }
+
+  private showPrestigeConfirmModal(mineId: MineId, cost: number): void {
+    const mine = this.latestState?.mines[mineId];
+
+    if (mine === undefined) {
+      return;
+    }
+
+    const overlay = this.pinUi(
+      this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.68)
+        .setDepth(MAP_VIEW_DEPTH + 140)
+        .setInteractive()
+    );
+    const panelWidth = 500;
+    const panelHeight = 270;
+    const panelX = GAME_WIDTH / 2 - panelWidth / 2;
+    const panelY = GAME_HEIGHT / 2 - panelHeight / 2;
+    const panel = this.pinUi(this.add.graphics().setDepth(MAP_VIEW_DEPTH + 141));
+    panel.fillStyle(0x17212a, 0.98);
+    panel.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panel.lineStyle(2, 0xf1c96b, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+
+    const titleText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 42, "Confirm Prestige", {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "28px",
+      fontStyle: "bold",
+      color: "#f6e8bb"
+    }).setOrigin(0.5).setDepth(MAP_VIEW_DEPTH + 142));
+    const bodyText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 92, `${mine.displayName} will reset and gain its next multiplier.`, {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "17px",
+      color: "#dcecf1"
+    }).setOrigin(0.5).setDepth(MAP_VIEW_DEPTH + 142));
+    const coinIcon = this.pinUi(
+      this.add.image(GAME_WIDTH / 2 - 58, panelY + 142, "coin-icon").setDisplaySize(28, 28).setDepth(MAP_VIEW_DEPTH + 142)
+    );
+    const costText = this.pinUi(this.add.text(GAME_WIDTH / 2 + 12, panelY + 142, formatMoney(cost), {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "24px",
+      fontStyle: "bold",
+      color: "#f6e8bb"
+    }).setOrigin(0.5).setDepth(MAP_VIEW_DEPTH + 142));
+    fitTextToWidth(costText, 190, [24, 22, 20, 18, 16]);
+
+    const cancelButton = this.createModalButton(GAME_WIDTH / 2 - 92, panelY + 214, 150, 42, "Cancel", 0x5c6670, MAP_VIEW_DEPTH + 142);
+    const confirmButton = this.createModalButton(GAME_WIDTH / 2 + 92, panelY + 214, 150, 42, "Prestige", 0x386641, MAP_VIEW_DEPTH + 142);
+    const objects = [
+      overlay,
+      panel,
+      titleText,
+      bodyText,
+      coinIcon,
+      costText,
+      ...cancelButton.objects,
+      ...confirmButton.objects
+    ];
+    const close = () => objects.forEach((obj) => obj.destroy());
+
+    cancelButton.zone.once("pointerdown", close);
+    confirmButton.zone.once("pointerdown", () => {
+      this.applyFrame(this.viewModel.prestigeMine(mineId), this.time.now);
+      close();
+    });
+  }
+
+  private createModalButton(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    label: string,
+    fill: number,
+    depth: number
+  ): { objects: Phaser.GameObjects.GameObject[]; zone: Phaser.GameObjects.Zone } {
+    const bg = this.pinUi(this.add.graphics().setDepth(depth));
+    bg.fillStyle(fill, 1);
+    bg.fillRoundedRect(x - width / 2, y - height / 2, width, height, 9);
+    const text = this.pinUi(this.add.text(x, y, label, {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "20px",
+      fontStyle: "bold",
+      color: "#ffffff"
+    }).setOrigin(0.5).setDepth(depth + 1));
+    const zone = this.pinUi(
+      this.add.zone(x, y, width, height)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(depth + 2)
+    );
+
+    return { objects: [bg, text, zone], zone };
+  }
+
+  private showMineSwitchLoading(): void {
+    this.hideMineSwitchLoading();
+
+    const overlay = this.pinUi(
+      this.add
+        .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x061018, 0.86)
+        .setInteractive()
+    );
+    const splash = this.pinUi(
+      this.add
+        .image(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 26, LOADING_SPLASH_KEY)
+        .setDisplaySize(330, 186)
+    );
+    const text = this.pinUi(
+      this.add
+        .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 92, "Loading mine... 100%", topBarTextStyle(22, "#f6e8bb"))
+        .setOrigin(0.5)
+    );
+
+    this.mineSwitchLoadingContainer = this.pinUi(
+      this.add
+        .container(0, 0, [overlay, splash, text])
+        .setDepth(MINE_SWITCH_LOADING_DEPTH)
+    );
+  }
+
+  private hideMineSwitchLoading(): void {
+    this.mineSwitchLoadingTimer?.remove(false);
+    this.mineSwitchLoadingTimer = undefined;
+    this.mineSwitchLoadingContainer?.destroy(true);
+    this.mineSwitchLoadingContainer = undefined;
+  }
+
+  private showMineOfflineCashModal(
+    mineId: MineId,
+    result: { offlineSeconds: number; moneyEarned: number; oreSold: number }
+  ): void {
+    const overlay = this.pinUi(
+      this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7)
+        .setDepth(900)
+    );
+
+    const panelWidth = 500;
+    const panelHeight = 300;
+    const panelX = GAME_WIDTH / 2 - panelWidth / 2;
+    const panelY = GAME_HEIGHT / 2 - panelHeight / 2;
+
+    const panel = this.pinUi(this.add.graphics().setDepth(901));
+    panel.fillStyle(0x17212a, 0.95);
+    panel.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panel.lineStyle(2, 0xf1c96b, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+
+    const titleText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 40, "Offline Progress", {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "28px",
+      fontStyle: "bold",
+      color: "#f6e8bb"
+    }).setOrigin(0.5).setDepth(902));
+    const timeText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 100, `Offline time: ${formatOfflineDuration(result.offlineSeconds)}`, {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "20px",
+      color: "#dcecf1"
+    }).setOrigin(0.5).setDepth(902));
+
+    const rowIconX = GAME_WIDTH / 2 - 88;
+    const rowTextX = GAME_WIDTH / 2 - 54;
+    const rowTextWidth = panelX + panelWidth - 52 - rowTextX;
+    const coinIcon = this.pinUi(
+      this.add.image(rowIconX, panelY + 150, "coin-icon").setDisplaySize(24, 24).setDepth(902)
+    );
+    const moneyText = this.pinUi(this.add.text(rowTextX, panelY + 150, `+${formatCurrency(result.moneyEarned)}`, {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "24px",
+      fontStyle: "bold",
+      color: "#4ee669"
+    }).setOrigin(0, 0.5).setDepth(902));
+    fitTextToWidth(moneyText, rowTextWidth, [24, 22, 20, 18, 16]);
+    const oreIcon = this.pinUi(
+      this.add.image(rowIconX, panelY + 190, getMapOreIconKey(mineId)).setDisplaySize(24, 24).setDepth(902)
+    );
+    const oreText = this.pinUi(this.add.text(rowTextX, panelY + 190, `${formatLargeNumber(result.oreSold)} ore sold`, {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "20px",
+      color: "#e6c94e"
+    }).setOrigin(0, 0.5).setDepth(902));
+    fitTextToWidth(oreText, rowTextWidth, [20, 18, 16, 14]);
+
+    const buttonWidth = 160;
+    const buttonHeight = 40;
+    const buttonX = GAME_WIDTH / 2;
+    const buttonY = panelY + panelHeight - 40;
+
+    const buttonBg = this.pinUi(this.add.graphics().setDepth(901));
+    buttonBg.fillStyle(0x386641, 1);
+    buttonBg.fillRoundedRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight, 8);
+
+    const buttonText = this.pinUi(this.add.text(buttonX, buttonY, "Collect", {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "20px",
+      fontStyle: "bold",
+      color: "#ffffff"
+    }).setOrigin(0.5).setDepth(902));
+
+    const buttonZone = this.pinUi(
+      this.add.zone(buttonX, buttonY, buttonWidth, buttonHeight)
+        .setDepth(903)
+    );
+
+    const objects = [overlay, panel, titleText, timeText, coinIcon, moneyText, oreIcon, oreText, buttonBg, buttonText, buttonZone];
+    let isClosed = false;
+    const collectAndClose = () => {
+      if (isClosed) {
+        return;
+      }
+
+      isClosed = true;
+      this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
+      this.viewModel.flushSave();
+      objects.forEach((obj) => obj.destroy());
+    };
+    const isInsidePanel = (pointer: Phaser.Input.Pointer) =>
+      pointer.x >= panelX &&
+      pointer.x <= panelX + panelWidth &&
+      pointer.y >= panelY &&
+      pointer.y <= panelY + panelHeight;
+
+    this.time.delayedCall(150, () => {
+      if (overlay.active) {
+        overlay.setInteractive();
+      }
+
+      if (buttonZone.active) {
+        buttonZone.setInteractive({ useHandCursor: true });
+      }
+    });
+
+    overlay.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (!isInsidePanel(pointer)) {
+        collectAndClose();
+      }
+    });
+
+    buttonZone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      collectAndClose();
+    });
   }
 
   private getMapMineAreaBounds(rect: { x: number; y: number; width: number; height: number }): Phaser.Geom.Rectangle {
@@ -2190,6 +3372,7 @@ export class MineScene extends Phaser.Scene {
     const { state, visual, events, buyMode } = frame;
     this.latestState = state;
 
+    this.refreshActiveMineTextures(state);
     this.processElevatorRouteEvents(state, events);
     this.refreshDepthSections(state);
     this.refreshDepthBlockades(state);
@@ -2258,18 +3441,18 @@ export class MineScene extends Phaser.Scene {
         shaftVisual.miner === "pickaxe"
           ? Math.floor(time / 170) % 2 === 0
             ? "miner-pickaxe-01"
-            : "miner-pickaxe-02"
+            : getMineTextureKey(state.activeMineId, "miner-pickaxe-02")
           : shaftVisual.miner === "carryBag"
-            ? "miner-carry"
+            ? getMineTextureKey(state.activeMineId, "miner-carry")
             : shaftVisual.miner === "dropBag"
-              ? "miner-drop"
+              ? getMineTextureKey(state.activeMineId, "miner-drop")
               : "miner-idle";
       const pickupTexture =
         shaftVisual.minePickupBox === "empty"
           ? "mine-pickup-empty"
           : shaftVisual.minePickupBox === "small"
-            ? "mine-pickup-small"
-            : "mine-pickup-full";
+            ? getMineTextureKey(state.activeMineId, "mine-pickup-small")
+            : getMineTextureKey(state.activeMineId, "mine-pickup-full");
 
       row.miner.setTexture(minerTexture);
       row.miner.setPosition(
@@ -2351,9 +3534,13 @@ export class MineScene extends Phaser.Scene {
       } else if (state.entities.elevator.state === "idle") {
         this.elevatorCabin.setY(ELEVATOR_TOP_Y);
       }
-      this.elevatorCabin.setTexture(loadState === "loaded" ? "elevator-cabin-loaded" : "elevator-cabin-empty");
+      this.elevatorCabin.setTexture(
+        loadState === "loaded" ? getMineTextureKey(state.activeMineId, "elevator-cabin-loaded") : "elevator-cabin-empty"
+      );
     } else {
-      this.elevatorCabin.setTexture(this.elevatorVisualLoaded ? "elevator-cabin-loaded" : "elevator-cabin-empty");
+      this.elevatorCabin.setTexture(
+        this.elevatorVisualLoaded ? getMineTextureKey(state.activeMineId, "elevator-cabin-loaded") : "elevator-cabin-empty"
+      );
     }
   }
 
@@ -2367,9 +3554,19 @@ export class MineScene extends Phaser.Scene {
     commandFeedbackVisible: boolean,
     commandFeedbackText: string
   ): void {
+    const activeMineId = this.getActiveMineId();
     const workerTexture =
-      workerState === "carryCoal" ? "warehouse-worker-carry" : workerState === "sell" ? "warehouse-worker-sell" : "warehouse-worker-idle";
-    const pileTexture = pileState === "empty" ? "warehouse-pile-empty" : pileState === "small" ? "warehouse-pile-small" : "warehouse-pile-full";
+      workerState === "carryCoal"
+        ? getMineTextureKey(activeMineId, "warehouse-worker-carry")
+        : workerState === "sell"
+          ? getMineTextureKey(activeMineId, "warehouse-worker-sell")
+          : "warehouse-worker-idle";
+    const pileTexture =
+      pileState === "empty"
+        ? "warehouse-pile-empty"
+        : pileState === "small"
+          ? getMineTextureKey(activeMineId, "warehouse-pile-small")
+          : getMineTextureKey(activeMineId, "warehouse-pile-full");
 
     this.warehouseWorker.setTexture(workerTexture);
     this.warehouseWorker.setPosition(
@@ -2390,12 +3587,14 @@ export class MineScene extends Phaser.Scene {
     const upgradeStateChanged =
       refreshAll ||
       buyModeChanged ||
+      eventTypes.has("activeMineChanged") ||
       eventTypes.has("moneyChanged") ||
       eventTypes.has("statsChanged") ||
       eventTypes.has("upgradePurchased") ||
       eventTypes.has("mineShaftUnlocked");
     const managerPanelStructureChanged =
       refreshAll ||
+      eventTypes.has("activeMineChanged") ||
       eventTypes.has("managerPurchased") ||
       eventTypes.has("managerAssigned") ||
       eventTypes.has("managerAssignedToShaft") ||
@@ -2408,6 +3607,7 @@ export class MineScene extends Phaser.Scene {
       eventTypes.has("automationStateChanged");
     const managerStateChanged =
       managerPanelStructureChanged ||
+      eventTypes.has("activeMineChanged") ||
       eventTypes.has("statsChanged") ||
       eventTypes.has("moneyChanged");
     const managerTimerChanged = currentManagerSecond !== this.lastManagerSlotRefreshSecond;
@@ -2424,6 +3624,7 @@ export class MineScene extends Phaser.Scene {
 
     if (
       refreshAll ||
+      eventTypes.has("activeMineChanged") ||
       eventTypes.has("statsChanged") ||
       eventTypes.has("upgradePurchased") ||
       eventTypes.has("mineShaftUnlocked") ||
@@ -2480,6 +3681,7 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.refreshSurfaceSidebarVisibility();
+    this.refreshMapView(state);
     this.activeBuyMode = buyMode;
     this.uiInitialized = true;
   }
@@ -3527,7 +4729,7 @@ export class MineScene extends Phaser.Scene {
       row.floor,
       row.supports,
       row.pickupBox,
-      row.coalDeposit,
+      row.oreDeposit,
       row.miner,
       row.storageText,
       row.routeText,
@@ -3749,6 +4951,16 @@ export class MineScene extends Phaser.Scene {
   private processElevatorRouteEvents(state: GameState, events: SimulationEvent[]): void {
     if (events.length === 0) {
       return;
+    }
+
+    if (events.some((event) => event.type === "activeMineChanged")) {
+      this.elevatorAnimationQueue = [];
+      this.activeElevatorAnimation = undefined;
+      this.elevatorVisualLoaded = state.entities.elevator.carriedOre > 0;
+
+      for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
+        this.shaftRouteFeedbackById[shaftId] = undefined;
+      }
     }
 
     const routeStarted = events.find((event) => event.type === "elevatorRouteStarted");
@@ -4089,24 +5301,100 @@ function formatProductionSummary(state: GameState): {
   };
 }
 
+function getMapMineConfig(mineId: MineId): (typeof MAP_MINE_AREAS)[number] {
+  return MAP_MINE_AREAS.find((area) => area.key === mineId) ?? MAP_MINE_AREAS[0];
+}
+
+type MineVariantTextureKey =
+  | "background-surface"
+  | "background-underground"
+  | "background-underground-depth-2"
+  | "background-underground-depth-3"
+  | "background-underground-depth-4"
+  | "background-underground-depth-5"
+  | "background-underground-depth-6"
+  | "elevator-cabin-loaded"
+  | "mine-shaft-back-wall"
+  | "mine-shaft-back-wall-level2"
+  | "mine-shaft-back-wall-level3"
+  | "mine-pickup-full"
+  | "mine-pickup-small"
+  | "miner-carry"
+  | "miner-drop"
+  | "miner-pickaxe-02"
+  | "ore-deposit"
+  | "ore-icon"
+  | "warehouse-building"
+  | "warehouse-pile-full"
+  | "warehouse-pile-small"
+  | "warehouse-worker-carry"
+  | "warehouse-worker-sell";
+
+function getMineTextureKey(mineId: MineId, key: MineVariantTextureKey): string {
+  const candidate = `${key}-${mineId}`;
+  return mineId !== DEFAULT_ACTIVE_MINE_ID && candidate in assetManifest ? candidate : key;
+}
+
+function getMineBackWallTextureKey(mineId: MineId, shaftId: number): string {
+  if (shaftId >= 21) {
+    return getMineTextureKey(mineId, "mine-shaft-back-wall-level3");
+  }
+
+  if (shaftId >= 11) {
+    return getMineTextureKey(mineId, "mine-shaft-back-wall-level2");
+  }
+
+  return getMineTextureKey(mineId, "mine-shaft-back-wall");
+}
+
+function getMapOreIconKey(mineId: MineId): string {
+  return getMineTextureKey(mineId, "ore-icon");
+}
+
+function getMapMineProductionRate(mine: GameState["mines"][MineId]): number {
+  const mineRate = Object.values(mine.entities.mineShafts).reduce((sum, shaft) => {
+    if (!shaft.isUnlocked || !mine.managers.automationEnabledByShaft[shaft.shaftId]) {
+      return sum;
+    }
+
+    return sum + mine.currentValues.mineShafts[shaft.shaftId].throughputPerSecond;
+  }, 0);
+  const elevatorRate = mine.managers.automationEnabledByArea.elevator
+    ? mine.currentValues.elevator.throughputPerSecond
+    : 0;
+  const warehouseRate = mine.managers.automationEnabledByArea.warehouse
+    ? mine.currentValues.warehouse.throughputPerSecond
+    : 0;
+
+  return Math.min(mineRate, elevatorRate, warehouseRate);
+}
+
 function formatRate(value: number): string {
   return `${formatAmount(value)}/s`;
 }
 
-function getDepthBackgroundKey(depthGroup: number): string {
+function formatOfflineDuration(seconds: number): string {
+  const d = Math.floor(seconds / (3600 * 24));
+  const h = Math.floor((seconds % (3600 * 24)) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+
+  return `${d > 0 ? `${d}d ` : ""}${h}h ${m}m`;
+}
+
+function getDepthBackgroundKey(depthGroup: number, mineId: MineId): string {
   switch (depthGroup) {
     case 1:
-      return "background-underground";
+      return getMineTextureKey(mineId, "background-underground");
     case 2:
-      return "background-underground-depth-2";
+      return getMineTextureKey(mineId, "background-underground-depth-2");
     case 3:
-      return "background-underground-depth-3";
+      return getMineTextureKey(mineId, "background-underground-depth-3");
     case 4:
-      return "background-underground-depth-4";
+      return getMineTextureKey(mineId, "background-underground-depth-4");
     case 5:
-      return "background-underground-depth-5";
+      return getMineTextureKey(mineId, "background-underground-depth-5");
     default:
-      return "background-underground-depth-6";
+      return getMineTextureKey(mineId, "background-underground-depth-6");
   }
 }
 

@@ -155,6 +155,22 @@ export class SimulationViewModel {
     return this.frameFromEvents(this.simulation.unlockMineShaft(shaftId));
   }
 
+  unlockMine(mineId: string): SimulationFrame {
+    return this.frameFromEvents(this.simulation.unlockMine(mineId));
+  }
+
+  setActiveMine(mineId: string): SimulationFrame {
+    return this.frameFromEvents(this.simulation.setActiveMine(mineId));
+  }
+
+  prestigeMine(mineId: string): SimulationFrame {
+    return this.frameFromEvents(this.simulation.prestigeMine(mineId));
+  }
+
+  collectMineOfflineCash(mineId: string): SimulationFrame {
+    return this.frameFromEvents(this.simulation.collectMineOfflineCash(mineId));
+  }
+
   removeDepthBlockade(blockadeId: string): SimulationFrame {
     return this.frameFromEvents(this.simulation.removeDepthBlockade(blockadeId));
   }

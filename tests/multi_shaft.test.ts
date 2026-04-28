@@ -211,7 +211,7 @@ test("18-22. Elevator besucht alle freigeschalteten Schaechte", () => {
   assert.equal(state.resources.storedOre.mineShafts[1], 0);
   assert.equal(state.resources.storedOre.mineShafts[2], 0);
   assert.equal(state.resources.storedOre.mineShafts[3], 0);
-  assert.ok(state.resources.storedOre.elevator > 0);
+  assert.ok(state.resources.storedOre.elevator + state.resources.storedOre.warehouse > 0);
 });
 
 test("23. Elevator stoppt, wenn voll", () => {

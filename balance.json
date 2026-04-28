@@ -2,7 +2,7 @@
   "economy": {
     "currencyName": "cash",
     "startingMoney": 0,
-    "startingMoneytest": 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,
+    "startingMoneytest": 1e+131,
     "sellPricePerOre": 1,
     "offlineEarningsDivisor": 3
   },

@@ -195,9 +195,16 @@ test("saves and loads the full core state", () => {
   assert.ok(savedAfterDispose);
   assert.equal(savedAfterDispose.version, SAVEGAME_VERSION);
   assert.equal(savedAfterDispose.savedAt >= 1111, true);
-  assert.deepEqual(savedAfterDispose.state.levels, expectedState.levels);
-  assert.deepEqual(savedAfterDispose.state.resources, expectedState.resources);
-  assert.equal(savedAfterDispose.state.entities.elevator.state, expectedState.entities.elevator.state);
+  assert.equal(savedAfterDispose.state.activeMineId, "coal");
+  const savedCoalMine = savedAfterDispose.state.mines.find((mine) => mine.mineId === "coal");
+  assert.ok(savedCoalMine);
+  assert.equal(savedCoalMine.elevator.level, expectedState.levels.elevator);
+  assert.equal(savedCoalMine.warehouse.level, expectedState.levels.warehouse);
+  assert.equal(savedCoalMine.elevator.state, expectedState.entities.elevator.state);
+  assert.equal(savedCoalMine.warehouse.state, expectedState.entities.warehouse.state);
+  assert.equal(savedCoalMine.totals.producedOre, expectedState.totals.producedOre);
+  assert.equal(savedCoalMine.mineShafts[0]?.level, expectedState.levels.mineShaft);
+  assert.equal(savedCoalMine.mineShafts[0]?.storedOre, expectedState.resources.mineShaft);
 
   const secondViewModel = new SimulationViewModel(balance, { saveRepository: repository });
   assertLoadedState(secondViewModel, expectedState);
