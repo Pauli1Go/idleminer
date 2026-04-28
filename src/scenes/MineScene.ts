@@ -72,7 +72,7 @@ import {
   type UpgradeBuyMode,
   type UpgradeTarget
 } from "../core/index.ts";
-import { formatLargeNumber, formatCurrency, formatDuration } from "../core/formatters.ts";
+import { formatLargeNumber, formatCurrency, formatDuration, formatSignificantNumber } from "../core/formatters.ts";
 import { SimulationViewModel, type SimulationFrame } from "../game/SimulationViewModel.ts";
 import { IS_DEBUG } from "../debug/config.ts";
 
@@ -3760,7 +3760,7 @@ function getDepthBackgroundKey(depthGroup: number): string {
 }
 
 function formatSpeedMultiplier(value: number): string {
-  return `${value.toFixed(2)}x`;
+  return `${formatSignificantNumber(value)}x`;
 }
 
 function formatMoney(value: number): string {

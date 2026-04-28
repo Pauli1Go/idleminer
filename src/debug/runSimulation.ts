@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { MineSimulation } from "../core/index.ts";
 import type { BalanceConfig } from "../core/index.ts";
+import { formatSignificantNumber } from "../core/formatters.ts";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const balancePath = resolve(rootDir, "balance.json");
@@ -14,7 +15,7 @@ const events = simulation.update(60);
 const state = simulation.getState();
 
 function formatAmount(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(3);
+  return formatSignificantNumber(value);
 }
 
 console.log("60s core simulation debug");
