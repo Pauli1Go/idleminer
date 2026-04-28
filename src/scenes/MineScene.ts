@@ -1396,7 +1396,7 @@ export class MineScene extends Phaser.Scene {
   private createResetButton(): void {
     const width = 80;
     const height = 40;
-    const x = 20;
+    const x = GAME_WIDTH - width - 20;
     const y = GAME_HEIGHT - height - 20;
 
     const bg = this.pinUi(this.add.graphics().setDepth(PINNED_UI_PANEL_DEPTH));
