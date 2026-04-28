@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 
+import mapWaterTextureUrl from "../../assets/backgrounds/map_water_texture.png";
 import backgroundSurfaceUrl from "../../assets/backgrounds/background_surface_clean.png";
 import backgroundUndergroundUrl from "../../assets/backgrounds/background_underground_clean.png";
 import backgroundUndergroundDepth2Url from "../../assets/backgrounds/background_underground_deph_2.png";
@@ -18,6 +19,7 @@ import warehouseWorkerIdleUrl from "../../assets/characters/warehouse_worker_idl
 import warehouseWorkerSellUrl from "../../assets/characters/warehouse_worker_sell_level1.png";
 import buttonPanelUrl from "../../assets/ui/button_panel.png";
 import coinIconUrl from "../../assets/ui/coin_icon.png";
+import mapButtonIconUrl from "../../assets/ui/map_button_icon.png";
 import oreIconUrl from "../../assets/ui/ore_icon.png";
 import upgradeArrowIconUrl from "../../assets/ui/upgrade_arrow_icon.png";
 import abilityCapacityBoostUrl from "../../assets/ui/abilities/ability_capacity_boost.png";
@@ -52,6 +54,7 @@ import mineShaftPickupEmptyUrl from "../../assets/world/mine_shaft_pickup_box_em
 import mineShaftPickupFullUrl from "../../assets/world/mine_shaft_pickup_box_full_level1.png";
 import mineShaftPickupSmallUrl from "../../assets/world/mine_shaft_pickup_box_small_level1.png";
 import mineShaftSupportsUrl from "../../assets/world/mine_shaft_supports_level1.png";
+import islandMapRegionsUrl from "../../assets/world/island_map_regions.png";
 import warehouseBuildingUrl from "../../assets/world/warehouse_building_level1.png";
 import warehousePileEmptyUrl from "../../assets/world/warehouse_storage_pile_empty.png";
 import warehousePileFullUrl from "../../assets/world/warehouse_storage_pile_coal_full.png";
@@ -89,6 +92,7 @@ const UI_INTERACTIVE_DEPTH = 22;
 const PINNED_UI_PANEL_DEPTH = 30;
 const PINNED_UI_TEXT_DEPTH = 31;
 const PINNED_UI_INTERACTIVE_DEPTH = 32;
+const MAP_VIEW_DEPTH = 1000;
 
 const SURFACE_WORLD_OFFSET_X = 84;
 const WAREHOUSE_BUILDING_X = 234;
@@ -189,6 +193,27 @@ const MINE_SHAFT_PANEL_BUTTON_HEIGHT = 30;
 const WORLD_BOTTOM_PADDING = 200;
 const CAMERA_SCROLL_STEP = 0.72;
 const SURFACE_SIDEBAR_HIDE_SCROLL_Y = 140;
+const MAP_BUTTON_SIZE = 78;
+const MAP_BUTTON_ICON_SIZE = 74;
+const MAP_BUTTON_ICON_HOVER_SIZE = 76;
+const MAP_BUTTON_X = MONEY_PANEL_X + MAP_BUTTON_SIZE / 2;
+const MAP_BUTTON_Y = GAME_HEIGHT - MONEY_PANEL_Y - MAP_BUTTON_SIZE / 2;
+const MAP_ISLAND_ASPECT_RATIO = 1402 / 1122;
+const MAP_ISLAND_DISPLAY_HEIGHT = 670;
+const MAP_ISLAND_DISPLAY_WIDTH = MAP_ISLAND_DISPLAY_HEIGHT * MAP_ISLAND_ASPECT_RATIO;
+const MAP_ISLAND_CENTER_X = GAME_WIDTH / 2 - GAME_WIDTH / 6 + 36;
+const MAP_ISLAND_CENTER_Y = GAME_HEIGHT / 2 + 18;
+const MAP_MONEY_PANEL_X = MONEY_PANEL_X;
+const MAP_MONEY_PANEL_Y = MONEY_PANEL_Y;
+const MAP_MONEY_PANEL_WIDTH = MONEY_PANEL_WIDTH;
+const MAP_MONEY_PANEL_HEIGHT = MONEY_PANEL_HEIGHT;
+const MAP_MINE_AREAS = [
+  { key: "coal", label: "Kohlemine", color: 0x2c3034, rect: { x: 0.17, y: 0.07, width: 0.27, height: 0.27 } },
+  { key: "gold", label: "Goldmine", color: 0xf3c94e, rect: { x: 0.52, y: 0.07, width: 0.30, height: 0.28 } },
+  { key: "ruby", label: "Rubinmine", color: 0xdf3f45, rect: { x: 0.08, y: 0.34, width: 0.29, height: 0.31 } },
+  { key: "diamond", label: "Diamantmine", color: 0x7ed7ff, rect: { x: 0.62, y: 0.33, width: 0.30, height: 0.33 } },
+  { key: "emerald", label: "Smaragdmine", color: 0x34c867, rect: { x: 0.36, y: 0.59, width: 0.30, height: 0.30 } }
+] as const;
 
 const MANAGER_SLOT_WIDTH = 220;
 const MANAGER_SLOT_HEIGHT = 118;
@@ -215,6 +240,7 @@ const managerSlotLayout = {
 } satisfies Record<"warehouse" | "elevator", { x: number; y: number; label: string }>;
 
 export const assetManifest = {
+  "map-water-texture": mapWaterTextureUrl,
   "background-surface": backgroundSurfaceUrl,
   "background-underground": backgroundUndergroundUrl,
   "background-underground-depth-2": backgroundUndergroundDepth2Url,
@@ -241,6 +267,7 @@ export const assetManifest = {
   "mine-pickup-empty": mineShaftPickupEmptyUrl,
   "mine-pickup-small": mineShaftPickupSmallUrl,
   "mine-pickup-full": mineShaftPickupFullUrl,
+  "island-map-regions": islandMapRegionsUrl,
   "coal-deposit": coalDepositUrl,
   "miner-idle": minerIdleUrl,
   "miner-pickaxe-01": minerPickaxe01Url,
@@ -252,6 +279,7 @@ export const assetManifest = {
   "warehouse-worker-sell": warehouseWorkerSellUrl,
   "button-panel": buttonPanelUrl,
   "coin-icon": coinIconUrl,
+  "map-button-icon": mapButtonIconUrl,
   "ore-icon": oreIconUrl,
   "upgrade-arrow-icon": upgradeArrowIconUrl,
   "manager-slot-empty": managerAssignSlotEmptyUrl,
@@ -505,6 +533,8 @@ export class MineScene extends Phaser.Scene {
   private managerPanelScrollY = 0;
   private managerPanelHireOfferUi: ManagerPanelHireOfferUi[] = [];
   private managerPanelAssignedUi: ManagerPanelAssignedUi | null = null;
+  private mapViewContainer: Phaser.GameObjects.Container | undefined;
+  private mapMoneyText: Phaser.GameObjects.Text | undefined;
   private latestState: GameState | undefined;
   private elevatorAnimationQueue: ElevatorAnimationStep[] = [];
   private activeElevatorAnimation:
@@ -812,12 +842,17 @@ export class MineScene extends Phaser.Scene {
     this.createBuyModeBar();
     this.createUpgradeCards();
     this.createStatusBar();
+    this.createMapButton();
     this.createManagerSlots();
     this.setupInputScroll();
   }
 
   private setupInputScroll(): void {
     this.input.on("wheel", (_pointer: Phaser.Input.Pointer, _gameObjects: unknown, _deltaX: number, deltaY: number) => {
+      if (this.mapViewContainer !== undefined) {
+        return;
+      }
+
       const pointer = this.input.activePointer;
 
       if (this.activeManagerPanelArea !== null && this.managerPanel !== undefined) {
@@ -1493,6 +1528,168 @@ export class MineScene extends Phaser.Scene {
 
     zone.on("pointerover", () => bg.setAlpha(1));
     zone.on("pointerout", () => bg.setAlpha(0.9));
+  }
+
+  private createMapButton(): void {
+    const buttonLeft = MAP_BUTTON_X - MAP_BUTTON_SIZE / 2;
+    const buttonTop = MAP_BUTTON_Y - MAP_BUTTON_SIZE / 2;
+    const buttonBg = this.pinUi(
+      this.drawRoundedPanel(buttonLeft, buttonTop, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE, {
+        fill: 0xf4cb7d,
+        fillAlpha: 0.98,
+        innerFill: 0xffdf9a,
+        innerAlpha: 0.52,
+        line: 0x613212,
+        radius: 18
+      }).setDepth(PINNED_UI_PANEL_DEPTH + 1).setAlpha(0.96)
+    );
+    const buttonIcon = this.pinUi(
+      this.add
+        .image(MAP_BUTTON_X, MAP_BUTTON_Y, "map-button-icon")
+        .setDisplaySize(MAP_BUTTON_ICON_SIZE, MAP_BUTTON_ICON_SIZE)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    const buttonZone = this.pinUi(
+      this.add
+        .zone(MAP_BUTTON_X, MAP_BUTTON_Y, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
+    );
+
+    buttonZone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        this.openMapView();
+      }
+    );
+
+    buttonZone.on("pointerover", () => {
+      buttonBg.setAlpha(1);
+      buttonIcon.setDisplaySize(MAP_BUTTON_ICON_HOVER_SIZE, MAP_BUTTON_ICON_HOVER_SIZE);
+    });
+
+    buttonZone.on("pointerout", () => {
+      buttonBg.setAlpha(0.96);
+      buttonIcon.setDisplaySize(MAP_BUTTON_ICON_SIZE, MAP_BUTTON_ICON_SIZE);
+    });
+  }
+
+  private openMapView(): void {
+    if (this.mapViewContainer !== undefined) {
+      return;
+    }
+
+    this.closeManagerPanel();
+
+    const container = this.pinUi(this.add.container(0, 0).setDepth(MAP_VIEW_DEPTH));
+    this.mapViewContainer = container;
+    const addMapObject = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T): T => {
+      container.add(this.pinUi(gameObject));
+      return gameObject;
+    };
+
+    const water = addMapObject(
+      this.add
+        .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "map-water-texture")
+        .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
+        .setDepth(MAP_VIEW_DEPTH)
+        .setInteractive()
+    );
+    water.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+    });
+
+    addMapObject(
+      this.add
+        .image(MAP_ISLAND_CENTER_X, MAP_ISLAND_CENTER_Y, "island-map-regions")
+        .setDisplaySize(MAP_ISLAND_DISPLAY_WIDTH, MAP_ISLAND_DISPLAY_HEIGHT)
+        .setDepth(MAP_VIEW_DEPTH + 1)
+    );
+
+    for (const area of MAP_MINE_AREAS) {
+      const bounds = this.getMapMineAreaBounds(area.rect);
+      const isCoalArea = area.key === "coal";
+
+      if (isCoalArea) {
+        const zone = addMapObject(
+          this.add
+            .zone(bounds.x, bounds.y, bounds.width, bounds.height)
+            .setOrigin(0)
+            .setInteractive({ useHandCursor: true })
+            .setDepth(MAP_VIEW_DEPTH + 6)
+        );
+
+        zone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+          event.stopPropagation();
+          this.closeMapViewToCoalMine();
+        });
+      }
+    }
+
+    this.createMapMoneyPanel(container);
+  }
+
+  private createMapMoneyPanel(container: Phaser.GameObjects.Container): void {
+    const addMapObject = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T): T => {
+      container.add(this.pinUi(gameObject));
+      return gameObject;
+    };
+
+    addMapObject(
+      this.drawRoundedPanel(MAP_MONEY_PANEL_X, MAP_MONEY_PANEL_Y, MAP_MONEY_PANEL_WIDTH, MAP_MONEY_PANEL_HEIGHT, {
+        fill: 0xf4cb7d,
+        fillAlpha: 0.98,
+        innerFill: 0xffdf9a,
+        innerAlpha: 0.52,
+        line: 0x613212,
+        radius: 16
+      }).setDepth(MAP_VIEW_DEPTH + 8)
+    );
+    addMapObject(
+      this.add
+        .image(MAP_MONEY_PANEL_X + 22, MAP_MONEY_PANEL_Y + MAP_MONEY_PANEL_HEIGHT / 2, "coin-icon")
+        .setDisplaySize(42, 42)
+        .setDepth(MAP_VIEW_DEPTH + 9)
+    );
+    this.mapMoneyText = addMapObject(
+      this.add
+        .text(
+          MAP_MONEY_PANEL_X + 42,
+          MAP_MONEY_PANEL_Y + MAP_MONEY_PANEL_HEIGHT / 2,
+          formatMoney(this.latestState?.money ?? 0),
+          topBarTextStyle(20, "#4b2709")
+        )
+        .setOrigin(0, 0.5)
+        .setDepth(MAP_VIEW_DEPTH + 9)
+    );
+    fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+  }
+
+  private closeMapViewToCoalMine(): void {
+    this.mapViewContainer?.destroy(true);
+    this.mapViewContainer = undefined;
+    this.mapMoneyText = undefined;
+    this.tweens.killTweensOf(this.cameras.main);
+    this.cameras.main.scrollY = 0;
+  }
+
+  private getMapMineAreaBounds(rect: { x: number; y: number; width: number; height: number }): Phaser.Geom.Rectangle {
+    const islandLeft = MAP_ISLAND_CENTER_X - MAP_ISLAND_DISPLAY_WIDTH / 2;
+    const islandTop = MAP_ISLAND_CENTER_Y - MAP_ISLAND_DISPLAY_HEIGHT / 2;
+
+    return new Phaser.Geom.Rectangle(
+      islandLeft + rect.x * MAP_ISLAND_DISPLAY_WIDTH,
+      islandTop + rect.y * MAP_ISLAND_DISPLAY_HEIGHT,
+      rect.width * MAP_ISLAND_DISPLAY_WIDTH,
+      rect.height * MAP_ISLAND_DISPLAY_HEIGHT
+    );
   }
 
   private createBarPanel(x: number, y: number, width: number, height: number): void {
@@ -2219,6 +2416,10 @@ export class MineScene extends Phaser.Scene {
 
     if (refreshAll || eventTypes.has("moneyChanged")) {
       this.moneyText.setText(formatMoney(state.money));
+      this.mapMoneyText?.setText(formatMoney(state.money));
+      if (this.mapMoneyText !== undefined) {
+        fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+      }
     }
 
     if (
@@ -3825,7 +4026,7 @@ function formatProductionSummary(state: GameState): {
   bottleneckArea: "mine" | "elevator" | "warehouse";
 } {
   const currentMineRate = Object.values(state.entities.mineShafts).reduce((sum, shaft) => {
-    if (!shaft.isUnlocked) {
+    if (!shaft.isUnlocked || !state.managers.automationEnabledByShaft[shaft.shaftId]) {
       return sum;
     }
 
@@ -3833,18 +4034,26 @@ function formatProductionSummary(state: GameState): {
   }, 0);
 
   const baseMineRate = Object.values(state.entities.mineShafts).reduce((sum, shaft) => {
-    if (!shaft.isUnlocked) {
+    if (!shaft.isUnlocked || !state.managers.automationEnabledByShaft[shaft.shaftId]) {
       return sum;
     }
 
     return sum + state.baseValues.mineShafts[shaft.shaftId].throughputPerSecond;
   }, 0);
 
-  const currentElevatorRate = state.currentValues.elevator.throughputPerSecond;
-  const baseElevatorRate = state.baseValues.elevator.throughputPerSecond;
+  const currentElevatorRate = state.managers.automationEnabledByArea.elevator
+    ? state.currentValues.elevator.throughputPerSecond
+    : 0;
+  const baseElevatorRate = state.managers.automationEnabledByArea.elevator
+    ? state.baseValues.elevator.throughputPerSecond
+    : 0;
 
-  const currentWarehouseRate = state.currentValues.warehouse.throughputPerSecond;
-  const baseWarehouseRate = state.baseValues.warehouse.throughputPerSecond;
+  const currentWarehouseRate = state.managers.automationEnabledByArea.warehouse
+    ? state.currentValues.warehouse.throughputPerSecond
+    : 0;
+  const baseWarehouseRate = state.managers.automationEnabledByArea.warehouse
+    ? state.baseValues.warehouse.throughputPerSecond
+    : 0;
 
   const isBoosted =
     currentMineRate > baseMineRate + 0.001 ||
