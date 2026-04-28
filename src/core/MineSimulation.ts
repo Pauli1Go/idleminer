@@ -95,6 +95,18 @@ interface MineRuntime {
   totals: ResourceTotalsState;
 }
 
+const SUPER_CASH_LEVEL_MILESTONE = 100;
+const SUPER_CASH_REWARD_PER_LEVEL_MILESTONE = 100;
+const DEBUG_SUPER_CASH = 10000;
+const SUPER_CASH_REWARD_BY_PRESTIGE_LEVEL: Record<number, number> = {
+  1: 100,
+  2: 200,
+  3: 300,
+  4: 500,
+  5: 1000,
+  6: 2000
+};
+
 export class MineSimulation {
   readonly balance: BalanceConfig;
   readonly fixedStepSeconds: number;
@@ -107,6 +119,7 @@ export class MineSimulation {
   private eventSequence = 0;
   private timeSeconds = 0;
   private money: number;
+  private superCash: number;
   private activeMineId: MineId = DEFAULT_ACTIVE_MINE_ID;
 
   get mineShafts(): MineShaft[] {
@@ -183,6 +196,7 @@ export class MineSimulation {
       : balance.economy.startingMoney;
       
     this.money = roundForState(startingMoney);
+    this.superCash = this.isDebug ? DEBUG_SUPER_CASH : 0;
 
     for (const definition of this.mineDefinitions) {
       const isUnlocked = definition.mineId === DEFAULT_ACTIVE_MINE_ID;
@@ -275,7 +289,7 @@ export class MineSimulation {
           unlocksShaftId: b.unlocksShaft,
           isRemoved: false,
           removalCost: b.removalCost,
-          removalDurationSeconds: this.isDebug ? 5 : b.removalDurationSeconds,
+          removalDurationSeconds: b.removalDurationSeconds,
           remainingRemovalSeconds: 0,
           isRemoving: false
         };
@@ -292,6 +306,7 @@ export class MineSimulation {
       state: {
         timeSeconds: roundForState(this.timeSeconds),
         money: roundForState(this.money),
+        superCash: roundForState(this.superCash),
         activeMineId: this.activeMineId,
         mines: this.mineDefinitions.map((definition) => this.exportMineSaveState(this.minesById[definition.mineId]))
       }
@@ -313,6 +328,10 @@ export class MineSimulation {
 
     this.timeSeconds = roundForState(requireNonNegativeNumber(state.timeSeconds, "state.timeSeconds"));
     this.money = roundForState(requireNonNegativeNumber(state.money, "state.money"));
+    this.superCash = roundForState(requireNonNegativeNumber(state.superCash, "state.superCash"));
+    if (this.isDebug) {
+      this.superCash = Math.max(this.superCash, DEBUG_SUPER_CASH);
+    }
     this.accumulatorSeconds = 0;
     this.eventSequence = 0;
 
@@ -328,6 +347,7 @@ export class MineSimulation {
         ? nextActiveMineId
         : this.mineDefinitions.find((definition) => this.minesById[definition.mineId]?.isUnlocked)?.mineId
           ?? DEFAULT_ACTIVE_MINE_ID;
+    this.superCash = roundForState(Math.max(this.superCash, this.getRecoveredSuperCashTotal()));
 
     return this.applyOfflineProgress(record.savedAt, loadedAt);
   }
@@ -564,6 +584,47 @@ export class MineSimulation {
     );
   }
 
+  private awardSuperCash(amount: number): void {
+    if (amount <= 0) {
+      return;
+    }
+
+    this.superCash = roundForState(this.superCash + amount);
+  }
+
+  private getSuperCashForLevelMilestones(previousLevel: number, currentLevel: number): number {
+    const previousMilestones = Math.floor(Math.max(0, previousLevel) / SUPER_CASH_LEVEL_MILESTONE);
+    const currentMilestones = Math.floor(Math.max(0, currentLevel) / SUPER_CASH_LEVEL_MILESTONE);
+
+    return Math.max(0, currentMilestones - previousMilestones) * SUPER_CASH_REWARD_PER_LEVEL_MILESTONE;
+  }
+
+  private getTotalSuperCashForLevel(level: number): number {
+    return Math.floor(Math.max(0, level) / SUPER_CASH_LEVEL_MILESTONE) * SUPER_CASH_REWARD_PER_LEVEL_MILESTONE;
+  }
+
+  private getSuperCashForPrestigeLevel(prestigeLevel: number): number {
+    return SUPER_CASH_REWARD_BY_PRESTIGE_LEVEL[prestigeLevel] ?? 0;
+  }
+
+  private getRecoveredSuperCashTotal(): number {
+    let recoveredSuperCash = 0;
+
+    for (const mine of Object.values(this.minesById)) {
+      recoveredSuperCash += this.getTotalSuperCashForLevel(mine.elevator.stats.level);
+
+      for (const shaft of mine.mineShafts) {
+        recoveredSuperCash += this.getTotalSuperCashForLevel(shaft.stats.level);
+      }
+
+      for (let prestigeLevel = 1; prestigeLevel <= mine.prestigeLevel; prestigeLevel += 1) {
+        recoveredSuperCash += this.getSuperCashForPrestigeLevel(prestigeLevel);
+      }
+    }
+
+    return roundForState(recoveredSuperCash);
+  }
+
   private resetMineProgress(
     mine: MineRuntime,
     options: {
@@ -747,6 +808,7 @@ export class MineSimulation {
     mine.prestigeLevel = nextPrestige.prestigeLevel;
     mine.currentPrestigeMultiplier = nextPrestige.multiplier;
     mine.mineMultiplier = nextPrestige.multiplier;
+    this.awardSuperCash(this.getSuperCashForPrestigeLevel(nextPrestige.prestigeLevel));
     this.resetMineProgress(mine, { isUnlocked: true });
 
     this.emit(
@@ -1235,6 +1297,7 @@ export class MineSimulation {
 
     this.baseMineShaftStatsByShaftId[shaftId] = this.createMineShaftStats(shaftId, result.currentLevel);
     this.syncMineShaftStats(shaftId, events);
+    this.awardSuperCash(this.getSuperCashForLevelMilestones(result.previousLevel, result.currentLevel));
 
     this.emit(
       {
@@ -1298,6 +1361,10 @@ export class MineSimulation {
 
     this.money = result.currentMoney;
     this.applyUpgradeStats(target, result.currentStats);
+
+    if (target === "elevator") {
+      this.awardSuperCash(this.getSuperCashForLevelMilestones(result.previousLevel, result.currentLevel));
+    }
 
     this.emit(
       {
@@ -1377,6 +1444,7 @@ export class MineSimulation {
     return {
       activeMineId: this.activeMineId,
       cash: roundForState(this.money),
+      superCash: roundForState(this.superCash),
       mines,
       timeSeconds: roundForState(this.timeSeconds),
       money: roundForState(this.money),

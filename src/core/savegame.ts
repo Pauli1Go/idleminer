@@ -149,6 +149,7 @@ export interface SaveGameMineStateV7 {
 export interface SaveGameStateV7 {
   timeSeconds: number;
   money: number;
+  superCash: number;
   activeMineId: MineId;
   mines: SaveGameMineStateV7[];
 }
@@ -433,16 +434,18 @@ function readStateV7(value: unknown): SaveGameStateV7 | null {
 
   const timeSeconds = readNonNegativeNumber(value.timeSeconds);
   const money = readNonNegativeNumber(value.money);
+  const superCash = value.superCash === undefined ? 0 : readNonNegativeNumber(value.superCash);
   const activeMineId = readString(value.activeMineId);
   const mines = readMinesV7(value.mines);
 
-  if (timeSeconds === null || money === null || activeMineId === null || mines === null) {
+  if (timeSeconds === null || money === null || superCash === null || activeMineId === null || mines === null) {
     return null;
   }
 
   return {
     timeSeconds,
     money,
+    superCash,
     activeMineId,
     mines
   };
@@ -531,6 +534,7 @@ function upgradeLegacyStateToV7(state: SaveGameStateV3): SaveGameStateV7 {
   return {
     timeSeconds: state.timeSeconds,
     money: state.money,
+    superCash: 0,
     activeMineId: coalMineId,
     mines: MINE_DEFINITIONS.map((definition) => {
       if (definition.mineId === coalMineId) {

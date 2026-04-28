@@ -21,6 +21,7 @@ import buttonPanelUrl from "../../assets/ui/button_panel.png";
 import coinIconUrl from "../../assets/ui/coin_icon.png";
 import mapButtonIconUrl from "../../assets/ui/map_button_icon.png";
 import oreIconUrl from "../../assets/ui/ore_icon.png";
+import superCashIconUrl from "../../assets/ui/supercash_icon.png";
 import goldOreIconUrl from "../../assets/other mines/gold/ui/ore_icon.png";
 import rubyOreIconUrl from "../../assets/other mines/ruby/ui/ore_icon.png";
 import diamondOreIconUrl from "../../assets/other mines/diamond/ui/ore_icon.png";
@@ -171,6 +172,11 @@ const MONEY_PANEL_X = 18;
 const MONEY_PANEL_Y = 14;
 const MONEY_PANEL_WIDTH = 172;
 const MONEY_PANEL_HEIGHT = 40;
+const MONEY_PANEL_GAP = 8;
+const SUPER_CASH_PANEL_X = MONEY_PANEL_X;
+const SUPER_CASH_PANEL_Y = MONEY_PANEL_Y + MONEY_PANEL_HEIGHT + MONEY_PANEL_GAP;
+const SUPER_CASH_PANEL_WIDTH = MONEY_PANEL_WIDTH;
+const SUPER_CASH_PANEL_HEIGHT = MONEY_PANEL_HEIGHT;
 const FLOW_PANEL_X = 197;
 const FLOW_PANEL_Y = 14;
 const FLOW_PANEL_WIDTH = 394;
@@ -214,6 +220,10 @@ const MAP_MONEY_PANEL_X = MONEY_PANEL_X;
 const MAP_MONEY_PANEL_Y = MONEY_PANEL_Y;
 const MAP_MONEY_PANEL_WIDTH = MONEY_PANEL_WIDTH;
 const MAP_MONEY_PANEL_HEIGHT = MONEY_PANEL_HEIGHT;
+const MAP_SUPER_CASH_PANEL_X = MAP_MONEY_PANEL_X;
+const MAP_SUPER_CASH_PANEL_Y = MAP_MONEY_PANEL_Y + MAP_MONEY_PANEL_HEIGHT + MONEY_PANEL_GAP;
+const MAP_SUPER_CASH_PANEL_WIDTH = MAP_MONEY_PANEL_WIDTH;
+const MAP_SUPER_CASH_PANEL_HEIGHT = MAP_MONEY_PANEL_HEIGHT;
 const MAP_MINE_AREAS = [
   { key: "coal", label: "Kohlemine", color: 0x2c3034, rect: { x: 0.17, y: 0.07, width: 0.27, height: 0.27 } },
   { key: "gold", label: "Goldmine", color: 0xf3c94e, rect: { x: 0.52, y: 0.07, width: 0.30, height: 0.28 } },
@@ -628,6 +638,7 @@ export const assetManifest = {
   "coin-icon": coinIconUrl,
   "map-button-icon": mapButtonIconUrl,
   "ore-icon": oreIconUrl,
+  "supercash-icon": superCashIconUrl,
   "ore-icon-coal": oreIconUrl,
   "ore-icon-gold": goldOreIconUrl,
   "ore-icon-ruby": rubyOreIconUrl,
@@ -889,6 +900,12 @@ interface ElevatorAnimationStep {
   loaded?: boolean;
 }
 
+interface CurrencyPanelUi {
+  frame: Phaser.GameObjects.Graphics;
+  icon: Phaser.GameObjects.Image;
+  text: Phaser.GameObjects.Text;
+}
+
 export class MineScene extends Phaser.Scene {
   private readonly balance: BalanceConfig;
   private readonly viewModel: SimulationViewModel;
@@ -911,6 +928,8 @@ export class MineScene extends Phaser.Scene {
   private warehouseFeedback!: Phaser.GameObjects.Text;
   private commandFeedback!: Phaser.GameObjects.Text;
   private moneyText!: Phaser.GameObjects.Text;
+  private superCashPanel!: CurrencyPanelUi;
+  private superCashText!: Phaser.GameObjects.Text;
   private productionTextsBoosted: Phaser.GameObjects.Text[] = [];
   private productionTextsBase: Phaser.GameObjects.Text[] = [];
   private buyModeButtons: BuyModeButtonUi[] = [];
@@ -928,6 +947,8 @@ export class MineScene extends Phaser.Scene {
   private managerPanelAssignedUi: ManagerPanelAssignedUi | null = null;
   private mapViewContainer: Phaser.GameObjects.Container | undefined;
   private mapMoneyText: Phaser.GameObjects.Text | undefined;
+  private mapSuperCashPanel: CurrencyPanelUi | undefined;
+  private mapSuperCashText: Phaser.GameObjects.Text | undefined;
   private mapMineAreaUi: MapMineAreaUi[] = [];
   private mapDetailPanel: MapDetailPanelUi | undefined;
   private mineSwitchLoadingContainer: Phaser.GameObjects.Container | undefined;
@@ -1931,16 +1952,26 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createTopBar(): void {
-    this.createBarPanel(MONEY_PANEL_X, MONEY_PANEL_Y, MONEY_PANEL_WIDTH, MONEY_PANEL_HEIGHT);
-    this.pinUi(
-      this.add.image(MONEY_PANEL_X + 22, MONEY_PANEL_Y + MONEY_PANEL_HEIGHT / 2, "coin-icon").setDisplaySize(42, 42).setDepth(PINNED_UI_TEXT_DEPTH)
+    const moneyPanel = this.createPinnedCurrencyPanel(
+      MONEY_PANEL_X,
+      MONEY_PANEL_Y,
+      MONEY_PANEL_WIDTH,
+      MONEY_PANEL_HEIGHT,
+      "coin-icon",
+      formatMoney
     );
-    this.moneyText = this.pinUi(
-      this.add
-        .text(MONEY_PANEL_X + 42, MONEY_PANEL_Y + MONEY_PANEL_HEIGHT / 2, "", topBarTextStyle(20, "#4b2709"))
-        .setOrigin(0, 0.5)
-        .setDepth(PINNED_UI_TEXT_DEPTH)
+    this.moneyText = moneyPanel.text;
+
+    this.superCashPanel = this.createPinnedCurrencyPanel(
+      SUPER_CASH_PANEL_X,
+      SUPER_CASH_PANEL_Y,
+      SUPER_CASH_PANEL_WIDTH,
+      SUPER_CASH_PANEL_HEIGHT,
+      "supercash-icon",
+      formatSuperCash
     );
+    this.superCashText = this.superCashPanel.text;
+    this.setCurrencyPanelVisible(this.superCashPanel, this.isSuperCashVisible(this.latestState));
 
     this.createBarPanel(FLOW_PANEL_X, FLOW_PANEL_Y, FLOW_PANEL_WIDTH, FLOW_PANEL_HEIGHT);
     this.flowOreIcon = this.pinUi(
@@ -2103,7 +2134,7 @@ export class MineScene extends Phaser.Scene {
 
     this.mapMineAreaUi = MAP_MINE_AREAS.map((area) => this.createMapMineArea(container, area));
     this.createMapDetailPanel(container);
-    this.createMapMoneyPanel(container);
+    this.createMapCurrencyPanels(container);
     this.refreshMapView(this.latestState);
   }
 
@@ -2366,40 +2397,34 @@ export class MineScene extends Phaser.Scene {
     };
   }
 
-  private createMapMoneyPanel(container: Phaser.GameObjects.Container): void {
+  private createMapCurrencyPanels(container: Phaser.GameObjects.Container): void {
     const addMapObject = <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T): T => {
       container.add(this.pinUi(gameObject));
       return gameObject;
     };
 
-    addMapObject(
-      this.drawRoundedPanel(MAP_MONEY_PANEL_X, MAP_MONEY_PANEL_Y, MAP_MONEY_PANEL_WIDTH, MAP_MONEY_PANEL_HEIGHT, {
-        fill: 0xf4cb7d,
-        fillAlpha: 0.98,
-        innerFill: 0xffdf9a,
-        innerAlpha: 0.52,
-        line: 0x613212,
-        radius: 16
-      }).setDepth(MAP_VIEW_DEPTH + 8)
+    const mapMoneyPanel = this.createMapCurrencyPanel(
+      addMapObject,
+      MAP_MONEY_PANEL_X,
+      MAP_MONEY_PANEL_Y,
+      MAP_MONEY_PANEL_WIDTH,
+      MAP_MONEY_PANEL_HEIGHT,
+      "coin-icon",
+      formatMoney(this.latestState?.money ?? 0)
     );
-    addMapObject(
-      this.add
-        .image(MAP_MONEY_PANEL_X + 22, MAP_MONEY_PANEL_Y + MAP_MONEY_PANEL_HEIGHT / 2, "coin-icon")
-        .setDisplaySize(42, 42)
-        .setDepth(MAP_VIEW_DEPTH + 9)
+    this.mapMoneyText = mapMoneyPanel.text;
+
+    this.mapSuperCashPanel = this.createMapCurrencyPanel(
+      addMapObject,
+      MAP_SUPER_CASH_PANEL_X,
+      MAP_SUPER_CASH_PANEL_Y,
+      MAP_SUPER_CASH_PANEL_WIDTH,
+      MAP_SUPER_CASH_PANEL_HEIGHT,
+      "supercash-icon",
+      formatSuperCash(this.latestState?.superCash ?? 0)
     );
-    this.mapMoneyText = addMapObject(
-      this.add
-        .text(
-          MAP_MONEY_PANEL_X + 42,
-          MAP_MONEY_PANEL_Y + MAP_MONEY_PANEL_HEIGHT / 2,
-          formatMoney(this.latestState?.money ?? 0),
-          topBarTextStyle(20, "#4b2709")
-        )
-        .setOrigin(0, 0.5)
-        .setDepth(MAP_VIEW_DEPTH + 9)
-    );
-    fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    this.mapSuperCashText = this.mapSuperCashPanel.text;
+    this.setCurrencyPanelVisible(this.mapSuperCashPanel, this.isSuperCashVisible(this.latestState));
   }
 
   private closeMapViewToMine(): void {
@@ -2410,6 +2435,8 @@ export class MineScene extends Phaser.Scene {
     this.mapViewContainer?.destroy(true);
     this.mapViewContainer = undefined;
     this.mapMoneyText = undefined;
+    this.mapSuperCashPanel = undefined;
+    this.mapSuperCashText = undefined;
     this.mapMineAreaUi = [];
     this.mapDetailPanel = undefined;
     this.tweens.killTweensOf(this.cameras.main);
@@ -2421,9 +2448,14 @@ export class MineScene extends Phaser.Scene {
       return;
     }
 
+    this.setCurrencyPanelVisible(this.mapSuperCashPanel, this.isSuperCashVisible(state));
     this.mapMoneyText?.setText(formatMoney(state.money));
     if (this.mapMoneyText !== undefined) {
       fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    }
+    this.mapSuperCashText?.setText(formatSuperCash(state.superCash));
+    if (this.mapSuperCashText !== undefined) {
+      fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
     }
 
     for (const ui of this.mapMineAreaUi) {
@@ -2877,8 +2909,8 @@ export class MineScene extends Phaser.Scene {
     );
   }
 
-  private createBarPanel(x: number, y: number, width: number, height: number): void {
-    this.pinUi(this.drawRoundedPanel(x, y, width, height, {
+  private createBarPanel(x: number, y: number, width: number, height: number): Phaser.GameObjects.Graphics {
+    return this.pinUi(this.drawRoundedPanel(x, y, width, height, {
       fill: 0xf4cb7d,
       fillAlpha: 0.96,
       innerFill: 0xffdf9a,
@@ -2886,6 +2918,95 @@ export class MineScene extends Phaser.Scene {
       line: 0x613212,
       radius: 16
     }).setDepth(PINNED_UI_PANEL_DEPTH));
+  }
+
+  private createPinnedCurrencyPanel(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    iconKey: string,
+    formatter: (value: number) => string
+  ): CurrencyPanelUi {
+    const frame = this.createBarPanel(x, y, width, height);
+    const icon = this.pinUi(this.add.image(x + 22, y + height / 2, iconKey).setDisplaySize(42, 42).setDepth(PINNED_UI_TEXT_DEPTH));
+    const text = this.pinUi(
+      this.add
+        .text(x + 42, y + height / 2, formatter(0), topBarTextStyle(20, "#4b2709"))
+        .setOrigin(0, 0.5)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    fitTextToWidth(text, width - 52, [20, 18, 16, 14, 12]);
+    return { frame, icon, text };
+  }
+
+  private createMapCurrencyPanel(
+    addMapObject: <T extends Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.ScrollFactor>(gameObject: T) => T,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    iconKey: string,
+    textValue: string
+  ): CurrencyPanelUi {
+    const frame = addMapObject(
+      this.drawRoundedPanel(x, y, width, height, {
+        fill: 0xf4cb7d,
+        fillAlpha: 0.98,
+        innerFill: 0xffdf9a,
+        innerAlpha: 0.52,
+        line: 0x613212,
+        radius: 16
+      }).setDepth(MAP_VIEW_DEPTH + 8)
+    );
+    const icon = addMapObject(
+      this.add
+        .image(x + 22, y + height / 2, iconKey)
+        .setDisplaySize(42, 42)
+        .setDepth(MAP_VIEW_DEPTH + 9)
+    );
+    const text = addMapObject(
+      this.add
+        .text(x + 42, y + height / 2, textValue, topBarTextStyle(20, "#4b2709"))
+        .setOrigin(0, 0.5)
+        .setDepth(MAP_VIEW_DEPTH + 9)
+    );
+    fitTextToWidth(text, width - 52, [20, 18, 16, 14, 12]);
+    return { frame, icon, text };
+  }
+
+  private isSuperCashVisible(state: GameState | undefined): boolean {
+    return IS_DEBUG || (state?.superCash ?? 0) > 0;
+  }
+
+  private setCurrencyPanelVisible(panel: CurrencyPanelUi | undefined, visible: boolean): void {
+    if (panel === undefined) {
+      return;
+    }
+
+    panel.frame.setVisible(visible);
+    panel.icon.setVisible(visible);
+    panel.text.setVisible(visible);
+  }
+
+  private refreshCurrencyPanels(state: GameState): void {
+    this.setCurrencyPanelVisible(this.superCashPanel, this.isSuperCashVisible(state));
+    this.moneyText.setText(formatMoney(state.money));
+    fitTextToWidth(this.moneyText, MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+
+    this.superCashText.setText(formatSuperCash(state.superCash));
+    fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+
+    this.mapMoneyText?.setText(formatMoney(state.money));
+    if (this.mapMoneyText !== undefined) {
+      fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    }
+
+    this.setCurrencyPanelVisible(this.mapSuperCashPanel, this.isSuperCashVisible(state));
+    this.mapSuperCashText?.setText(formatSuperCash(state.superCash));
+    if (this.mapSuperCashText !== undefined) {
+      fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    }
   }
 
   private createBuyModeBar(): void {
@@ -3618,11 +3739,7 @@ export class MineScene extends Phaser.Scene {
       eventTypes.has("moneyChanged") || currentManagerSecond !== this.lastManagerPanelRefreshSecond;
 
     if (refreshAll || eventTypes.has("moneyChanged")) {
-      this.moneyText.setText(formatMoney(state.money));
-      this.mapMoneyText?.setText(formatMoney(state.money));
-      if (this.mapMoneyText !== undefined) {
-        fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
-      }
+      this.refreshCurrencyPanels(state);
     }
 
     if (
@@ -5415,6 +5532,10 @@ function formatSpeedMultiplier(value: number): string {
 
 function formatMoney(value: number): string {
   return formatCurrency(value);
+}
+
+function formatSuperCash(value: number): string {
+  return `$$${formatAmount(value)}`;
 }
 
 function formatAmount(value: number): string {

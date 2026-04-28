@@ -143,6 +143,7 @@ export interface MineStateSnapshot {
 export interface GameState {
   activeMineId: MineId;
   cash: number;
+  superCash: number;
   mines: Record<MineId, MineStateSnapshot>;
   timeSeconds: number;
   money: number;
