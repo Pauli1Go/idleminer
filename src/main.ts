@@ -2,6 +2,8 @@ import Phaser from "phaser";
 
 import balance from "../balance.json";
 import { createLocalStorageSaveGameRepository, type BalanceConfig, type SaveGameRepository } from "./core/index.ts";
+import { BootScene } from "./scenes/BootScene.ts";
+import { LoadingScene } from "./scenes/LoadingScene.ts";
 import { MineScene } from "./scenes/MineScene.ts";
 import "./style.css";
 
@@ -34,7 +36,7 @@ const gameConfig: Phaser.Types.Core.GameConfig = {
     pixelArt: false,
     roundPixels: false
   },
-  scene: [new MineScene(balance as BalanceConfig, saveRepository)]
+  scene: [new BootScene(), new LoadingScene(), new MineScene(balance as BalanceConfig, saveRepository)]
 };
 
 const game = new Phaser.Game(gameConfig);

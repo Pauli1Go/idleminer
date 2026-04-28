@@ -214,7 +214,7 @@ const managerSlotLayout = {
   elevator: { x: 526, y: 72, label: "Elevator" }
 } satisfies Record<"warehouse" | "elevator", { x: number; y: number; label: string }>;
 
-const assetManifest = {
+export const assetManifest = {
   "background-surface": backgroundSurfaceUrl,
   "background-underground": backgroundUndergroundUrl,
   "background-underground-depth-2": backgroundUndergroundDepth2Url,
@@ -540,7 +540,9 @@ export class MineScene extends Phaser.Scene {
 
   preload(): void {
     Object.entries(assetManifest).forEach(([key, url]) => {
-      this.load.image(key, url);
+      if (!this.textures.exists(key)) {
+        this.load.image(key, url);
+      }
     });
   }
 
@@ -1586,8 +1588,8 @@ export class MineScene extends Phaser.Scene {
     const y = 14;
 
     this.miniUpgradeCards = {
-      warehouse: this.createMiniUpgradeCard("warehouse", startX, y, cardWidth, cardHeight),
-      elevator: this.createMiniUpgradeCard("elevator", startX + cardWidth + 7, y, cardWidth, cardHeight)
+      elevator: this.createMiniUpgradeCard("elevator", startX, y, cardWidth, cardHeight),
+      warehouse: this.createMiniUpgradeCard("warehouse", startX + cardWidth + 7, y, cardWidth, cardHeight)
     };
   }
 
