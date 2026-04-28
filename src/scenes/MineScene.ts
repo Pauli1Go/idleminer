@@ -1182,7 +1182,9 @@ export class MineScene extends Phaser.Scene {
     this.flowOreIcon.setTexture(getMapOreIconKey(state.activeMineId));
 
     for (const section of this.depthSections) {
-      section.background.setTexture(getDepthBackgroundKey(section.depthGroup, state.activeMineId));
+      section.background
+        .setTexture(getDepthBackgroundKey(section.depthGroup, state.activeMineId))
+        .setTint(getDepthBackgroundTint(section.depthGroup, state.activeMineId));
     }
 
     for (let shaftId = 1; shaftId <= this.totalMineShafts; shaftId += 1) {
@@ -1208,6 +1210,7 @@ export class MineScene extends Phaser.Scene {
       const background = this.add
         .image(GAME_WIDTH / 2, topY + height / 2, getDepthBackgroundKey(depthGroup, activeMineId))
         .setDisplaySize(DEPTH_SECTION_WIDTH, height)
+        .setTint(getDepthBackgroundTint(depthGroup, activeMineId))
         .setVisible(depthGroup === 1);
 
       this.depthSections.push({
@@ -5396,6 +5399,14 @@ function getDepthBackgroundKey(depthGroup: number, mineId: MineId): string {
     default:
       return getMineTextureKey(mineId, "background-underground-depth-6");
   }
+}
+
+function getDepthBackgroundTint(depthGroup: number, mineId: MineId): number {
+  if (mineId !== DEFAULT_ACTIVE_MINE_ID && mineId !== "emerald" && depthGroup >= 2 && depthGroup <= 6) {
+    return 0xd8d8d8;
+  }
+
+  return 0xffffff;
 }
 
 function formatSpeedMultiplier(value: number): string {
