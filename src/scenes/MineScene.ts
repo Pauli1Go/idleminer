@@ -342,6 +342,39 @@ interface ManagerHireOffer {
   canAfford: boolean;
 }
 
+interface ManagerPanelButtonUi {
+  image: Phaser.GameObjects.Image;
+  text: Phaser.GameObjects.Text;
+  zone: Phaser.GameObjects.Zone;
+  interactive: boolean;
+  enabledTint?: number;
+}
+
+interface ManagerPanelHireOfferUi {
+  area: ManagerArea;
+  costText: Phaser.GameObjects.Text;
+  button: ManagerPanelButtonUi;
+}
+
+interface ManagerPanelAssignedUi {
+  managerId: string;
+  timerText: Phaser.GameObjects.Text;
+  abilityIcon: Phaser.GameObjects.Image;
+}
+
+interface ManagerPanelContentContainer extends Phaser.GameObjects.Container {
+  isManagerPanelContentContainer?: true;
+  contentAreaY?: number;
+  contentAreaHeight?: number;
+  totalContentHeight?: number;
+  scrollInteractiveZones?: Phaser.GameObjects.Zone[];
+}
+
+interface ManagerPanelScrollbar extends Phaser.GameObjects.Graphics {
+  isScrollbar?: true;
+  scrollbarHeight?: number;
+}
+
 interface WorldClickTargetUi {
   zone: Phaser.GameObjects.Zone;
   outline: Phaser.GameObjects.Rectangle;
@@ -470,6 +503,8 @@ export class MineScene extends Phaser.Scene {
   private activeManagerPanelShaftId: number | null = null;
   private managerPanel: Phaser.GameObjects.Container | undefined;
   private managerPanelScrollY = 0;
+  private managerPanelHireOfferUi: ManagerPanelHireOfferUi[] = [];
+  private managerPanelAssignedUi: ManagerPanelAssignedUi | null = null;
   private latestState: GameState | undefined;
   private elevatorAnimationQueue: ElevatorAnimationStep[] = [];
   private activeElevatorAnimation:
@@ -811,17 +846,15 @@ export class MineScene extends Phaser.Scene {
       return;
     }
 
-    const contentContainer = this.managerPanel.list.find(
-      (child) => child instanceof Phaser.GameObjects.Container && child !== this.managerPanel
-    ) as Phaser.GameObjects.Container | undefined;
+    const contentContainer = this.getManagerPanelContentContainer();
 
     if (!contentContainer) {
       return;
     }
 
-    const contentAreaHeight = (contentContainer as any).contentAreaHeight ?? (MANAGER_PANEL_HEIGHT - 72);
-    const contentAreaY = (contentContainer as any).contentAreaY ?? (MANAGER_PANEL_Y + 66);
-    const totalContentHeight = (contentContainer as { totalContentHeight?: number }).totalContentHeight ?? 0;
+    const contentAreaHeight = contentContainer.contentAreaHeight ?? (MANAGER_PANEL_HEIGHT - 72);
+    const contentAreaY = contentContainer.contentAreaY ?? (MANAGER_PANEL_Y + 66);
+    const totalContentHeight = contentContainer.totalContentHeight ?? 0;
     const maxScroll = Math.max(0, totalContentHeight - contentAreaHeight);
 
     if (maxScroll <= 0) {
@@ -830,18 +863,49 @@ export class MineScene extends Phaser.Scene {
 
     this.managerPanelScrollY = Phaser.Math.Clamp(this.managerPanelScrollY - deltaY, -maxScroll, 0);
     contentContainer.setY(this.managerPanelScrollY);
+    this.refreshManagerPanelScrollableInteractions(contentContainer);
 
     const scrollbar = this.managerPanel.list.find(
       (child) => child instanceof Phaser.GameObjects.Graphics && (child as { isScrollbar?: boolean }).isScrollbar
-    ) as Phaser.GameObjects.Graphics | undefined;
+    ) as ManagerPanelScrollbar | undefined;
 
     if (!scrollbar) {
       return;
     }
 
     const scrollPercent = -this.managerPanelScrollY / maxScroll;
-    const scrollbarHeight = (scrollbar as { scrollbarHeight?: number }).scrollbarHeight ?? 0;
+    const scrollbarHeight = scrollbar.scrollbarHeight ?? 0;
     scrollbar.setY(contentAreaY + 5 + scrollPercent * (contentAreaHeight - scrollbarHeight - 10));
+  }
+
+  private getManagerPanelContentContainer(): ManagerPanelContentContainer | undefined {
+    return this.managerPanel?.list.find(
+      (child): child is ManagerPanelContentContainer =>
+        child instanceof Phaser.GameObjects.Container && (child as ManagerPanelContentContainer).isManagerPanelContentContainer === true
+    );
+  }
+
+  private refreshManagerPanelScrollableInteractions(contentContainer: ManagerPanelContentContainer): void {
+    const zones = contentContainer.scrollInteractiveZones ?? [];
+    const viewportTop = contentContainer.contentAreaY ?? (MANAGER_PANEL_Y + 66);
+    const viewportBottom = viewportTop + (contentContainer.contentAreaHeight ?? (MANAGER_PANEL_HEIGHT - 72));
+
+    for (const zone of zones) {
+      const zoneTop = contentContainer.y + zone.y - zone.height * zone.originY;
+      const zoneBottom = zoneTop + zone.height;
+      const isInsideViewport = zoneTop >= viewportTop - 0.5 && zoneBottom <= viewportBottom + 0.5;
+
+      if (isInsideViewport) {
+        if (zone.input) {
+          zone.input.enabled = true;
+          zone.input.cursor = "pointer";
+        } else {
+          zone.setInteractive({ useHandCursor: true });
+        }
+      } else {
+        zone.disableInteractive();
+      }
+    }
   }
 
   private computeWorldHeight(totalMineShafts: number): number {
@@ -2131,7 +2195,7 @@ export class MineScene extends Phaser.Scene {
       eventTypes.has("statsChanged") ||
       eventTypes.has("upgradePurchased") ||
       eventTypes.has("mineShaftUnlocked");
-    const managerStateChanged =
+    const managerPanelStructureChanged =
       refreshAll ||
       eventTypes.has("managerPurchased") ||
       eventTypes.has("managerAssigned") ||
@@ -2142,10 +2206,14 @@ export class MineScene extends Phaser.Scene {
       eventTypes.has("managerAbilityExpired") ||
       eventTypes.has("managerCooldownStarted") ||
       eventTypes.has("managerCooldownFinished") ||
-      eventTypes.has("automationStateChanged") ||
+      eventTypes.has("automationStateChanged");
+    const managerStateChanged =
+      managerPanelStructureChanged ||
       eventTypes.has("statsChanged") ||
       eventTypes.has("moneyChanged");
     const managerTimerChanged = currentManagerSecond !== this.lastManagerSlotRefreshSecond;
+    const managerPanelDynamicChanged =
+      eventTypes.has("moneyChanged") || currentManagerSecond !== this.lastManagerPanelRefreshSecond;
 
     if (refreshAll || eventTypes.has("moneyChanged")) {
       this.moneyText.setText(formatMoney(state.money));
@@ -2198,12 +2266,14 @@ export class MineScene extends Phaser.Scene {
       this.lastManagerSlotRefreshSecond = currentManagerSecond;
     }
 
-    if (
-      this.activeManagerPanelArea !== null &&
-      (managerStateChanged || currentManagerSecond !== this.lastManagerPanelRefreshSecond)
-    ) {
-      this.rebuildManagerPanel(state);
-      this.lastManagerPanelRefreshSecond = currentManagerSecond;
+    if (this.activeManagerPanelArea !== null) {
+      if (managerPanelStructureChanged) {
+        this.rebuildManagerPanel(state);
+        this.lastManagerPanelRefreshSecond = currentManagerSecond;
+      } else if (managerPanelDynamicChanged) {
+        this.refreshManagerPanelDynamicState(state);
+        this.lastManagerPanelRefreshSecond = currentManagerSecond;
+      }
     }
 
     this.refreshSurfaceSidebarVisibility();
@@ -2362,6 +2432,8 @@ export class MineScene extends Phaser.Scene {
     this.activeManagerPanelArea = null;
     this.activeManagerPanelShaftId = null;
     this.managerPanelScrollY = 0;
+    this.managerPanelHireOfferUi = [];
+    this.managerPanelAssignedUi = null;
     this.lastManagerPanelRefreshSecond = -1;
   }
 
@@ -2379,6 +2451,8 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.managerPanel?.destroy(true);
+    this.managerPanelHireOfferUi = [];
+    this.managerPanelAssignedUi = null;
 
     const container = this.pinUi(this.add.container(0, 0).setDepth(MANAGER_PANEL_DEPTH));
     this.managerPanel = container;
@@ -2475,7 +2549,7 @@ export class MineScene extends Phaser.Scene {
       const row = Math.floor(index / 2);
       const x = MANAGER_PANEL_X + 22 + column * (MANAGER_ENTRY_WIDTH + MANAGER_ENTRY_GAP_X);
       const y = cursorY + row * (MANAGER_ENTRY_HEIGHT + MANAGER_ENTRY_GAP_Y);
-      this.createHireOfferEntry(container, offer, x, y);
+      this.managerPanelHireOfferUi.push(this.createHireOfferEntry(container, offer, x, y));
     });
     cursorY += Math.ceil(offers.length / 2) * (MANAGER_ENTRY_HEIGHT + MANAGER_ENTRY_GAP_Y) + 14;
 
@@ -2550,11 +2624,13 @@ export class MineScene extends Phaser.Scene {
     contentMaskShape.fillRoundedRect(contentAreaX, scrollAreaY, contentAreaWidth, scrollAreaHeight, 14);
     const contentMask = contentMaskShape.createGeometryMask();
 
-    const contentContainer = this.pinUi(this.add.container(0, 0));
+    const contentContainer = this.pinUi(this.add.container(0, 0)) as ManagerPanelContentContainer;
+    contentContainer.isManagerPanelContentContainer = true;
+    contentContainer.scrollInteractiveZones = [];
     contentContainer.setMask(contentMask);
     container.add(contentContainer);
-    (contentContainer as any).contentAreaY = scrollAreaY;
-    (contentContainer as any).contentAreaHeight = scrollAreaHeight;
+    contentContainer.contentAreaY = scrollAreaY;
+    contentContainer.contentAreaHeight = scrollAreaHeight;
 
     const ownedManagersListStartY = cursorY;
     if (ownedManagers.length === 0) {
@@ -2577,19 +2653,20 @@ export class MineScene extends Phaser.Scene {
     }
 
     const totalContentHeight = cursorY - ownedManagersListStartY + 20; 
-    (contentContainer as any).totalContentHeight = totalContentHeight;
+    contentContainer.totalContentHeight = totalContentHeight;
     const maxScroll = Math.max(0, totalContentHeight - scrollAreaHeight);
 
     // Clamp scroll Y if content height changed
     this.managerPanelScrollY = Phaser.Math.Clamp(this.managerPanelScrollY, -maxScroll, 0);
     contentContainer.setY(this.managerPanelScrollY);
+    this.refreshManagerPanelScrollableInteractions(contentContainer);
 
     // Scrollbar
     if (maxScroll > 0) {
       const scrollbarHeight = Math.max(30, (scrollAreaHeight / totalContentHeight) * scrollAreaHeight);
-      const scrollbar = this.addManagerPanelObject(container, this.add.graphics());
-      (scrollbar as any).isScrollbar = true;
-      (scrollbar as any).scrollbarHeight = scrollbarHeight;
+      const scrollbar = this.addManagerPanelObject(container, this.add.graphics()) as ManagerPanelScrollbar;
+      scrollbar.isScrollbar = true;
+      scrollbar.scrollbarHeight = scrollbarHeight;
       scrollbar.fillStyle(0xf1c96b, 0.4);
       scrollbar.fillRoundedRect(contentAreaX + contentAreaWidth - 10, 0, 4, scrollbarHeight, 2);
       
@@ -2673,7 +2750,7 @@ export class MineScene extends Phaser.Scene {
           )
           .setDepth(MANAGER_PANEL_TEXT_DEPTH)
       );
-      this.addManagerPanelObject(
+      const timerText = this.addManagerPanelObject(
         container,
         this.add
           .text(MANAGER_PANEL_X + 382, y + 38, formatManagerTimer(manager), smallUiTextStyle(12, "#f1d389"))
@@ -2701,6 +2778,11 @@ export class MineScene extends Phaser.Scene {
         event.stopPropagation();
         this.activateAssignedManagerAbility(area, shaftId ?? 1);
       });
+      this.managerPanelAssignedUi = {
+        managerId: manager.id,
+        timerText,
+        abilityIcon
+      };
 
       this.createPanelButton(
         container,
@@ -2817,7 +2899,7 @@ export class MineScene extends Phaser.Scene {
       );
     }
 
-    this.createPanelButton(
+    const assignButton = this.createPanelButton(
       container,
       x + 226,
       y + 8,
@@ -2829,9 +2911,10 @@ export class MineScene extends Phaser.Scene {
         this.applyFrame(this.viewModel.assignManager(manager.id, manager.area, targetShaftId ?? 1), this.time.now);
       }
     );
+    (container as ManagerPanelContentContainer).scrollInteractiveZones?.push(assignButton.zone);
   }
 
-  private createHireOfferEntry(container: Phaser.GameObjects.Container, offer: ManagerHireOffer, x: number, y: number): void {
+  private createHireOfferEntry(container: Phaser.GameObjects.Container, offer: ManagerHireOffer, x: number, y: number): ManagerPanelHireOfferUi {
     this.createPanelCard(container, x, y, MANAGER_ENTRY_WIDTH, MANAGER_ENTRY_HEIGHT, offer.canAfford ? 0x1f323c : 0x332b2b, 0.96);
     this.addManagerPanelObject(
       container,
@@ -2848,14 +2931,14 @@ export class MineScene extends Phaser.Scene {
         .text(x + 70, y + 12, "Random draw + ability", smallUiTextStyle(11, "#ecf8fa"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
-    this.addManagerPanelObject(
+    const costText = this.addManagerPanelObject(
       container,
       this.add
         .text(x + 76, y + 23, formatMoney(offer.hireCost), smallUiTextStyle(11, offer.canAfford ? "#f1d389" : "#f08e7f"))
         .setDepth(MANAGER_PANEL_TEXT_DEPTH)
     );
 
-    this.createPanelButton(
+    const button = this.createPanelButton(
       container,
       x + 236,
       y + 8,
@@ -2868,6 +2951,12 @@ export class MineScene extends Phaser.Scene {
       },
       true
     );
+
+    return {
+      area: offer.area,
+      costText,
+      button
+    };
   }
 
   private createPanelCard(
@@ -2898,7 +2987,7 @@ export class MineScene extends Phaser.Scene {
     handler: () => void,
     interactive = visualEnabled,
     enabledTint?: number
-  ): void {
+  ): ManagerPanelButtonUi {
     const tint = enabledTint ?? (visualEnabled ? 0xffffff : 0x8c6c58);
     const image = this.addManagerPanelObject(
       container,
@@ -2930,6 +3019,57 @@ export class MineScene extends Phaser.Scene {
         event.stopPropagation();
         handler();
       });
+    }
+
+    const button: ManagerPanelButtonUi = {
+      image,
+      text,
+      zone,
+      interactive,
+      enabledTint
+    };
+    this.setPanelButtonVisualEnabled(button, visualEnabled);
+    return button;
+  }
+
+  private setPanelButtonVisualEnabled(button: ManagerPanelButtonUi, visualEnabled: boolean): void {
+    const tint = button.enabledTint ?? (visualEnabled ? 0xffffff : 0x8c6c58);
+
+    button.image
+      .setAlpha(visualEnabled ? 1 : 0.64)
+      .setTint(tint);
+    button.text.setColor(visualEnabled ? "#fff8de" : "#e3c7aa");
+
+    if (button.zone.input) {
+      button.zone.input.cursor = button.interactive ? "pointer" : "default";
+    }
+  }
+
+  private refreshManagerPanelDynamicState(state: GameState): void {
+    const area = this.activeManagerPanelArea;
+    if (area === null || this.managerPanel === undefined) {
+      return;
+    }
+
+    for (const offerUi of this.managerPanelHireOfferUi) {
+      const hiredCount = state.managers.hireCountsByArea[offerUi.area];
+      const hireCost = getManagerHireCost(this.balance, offerUi.area, hiredCount);
+      const canAfford = state.money + Number.EPSILON >= hireCost;
+
+      offerUi.costText
+        .setText(formatMoney(hireCost))
+        .setColor(canAfford ? "#f1d389" : "#f08e7f");
+      this.setPanelButtonVisualEnabled(offerUi.button, canAfford);
+    }
+
+    const shaftId = area === "mineShaft" ? this.activeManagerPanelShaftId ?? 1 : null;
+    const assignedManager =
+      area === "mineShaft" ? getAssignedManagerForShaft(state, shaftId ?? 1) : getAssignedManagerForArea(state, area);
+    const assignedUi = this.managerPanelAssignedUi;
+
+    if (assignedManager !== undefined && assignedUi !== null && assignedUi.managerId === assignedManager.id) {
+      assignedUi.timerText.setText(formatManagerTimer(assignedManager));
+      assignedUi.abilityIcon.setAlpha(assignedManager.isActive ? 1 : assignedManager.remainingCooldownTime > 0 ? 0.48 : 0.92);
     }
   }
 
