@@ -105,6 +105,9 @@ const PINNED_UI_TEXT_DEPTH = 31;
 const PINNED_UI_INTERACTIVE_DEPTH = 32;
 const MAP_VIEW_DEPTH = 1000;
 const SUPER_CASH_ANIMATION_DEPTH = MAP_VIEW_DEPTH + 180;
+const TUTORIAL_STORAGE_KEY = "idle-miner.tutorial.v2";
+const TUTORIAL_DEPTH = MAP_VIEW_DEPTH + 260;
+const TUTORIAL_FOCUS_PADDING = 10;
 
 const SURFACE_WORLD_OFFSET_X = 84;
 const WAREHOUSE_BUILDING_X = 234;
@@ -853,6 +856,38 @@ interface WorldClickTargetUi {
   chip: Phaser.GameObjects.Text;
 }
 
+type TutorialStepId =
+  | "manualMine"
+  | "manualElevator"
+  | "manualWarehouse"
+  | "mineLevel2"
+  | "managerUnlock"
+  | "managerCash"
+  | "managerSlot"
+  | "managerHire"
+  | "managerAssign"
+  | "managerOtherAreas"
+  | "managerAbility"
+  | "managerAllBoost";
+
+type TutorialBlockingActionStep = Extract<TutorialStepId, "manualMine" | "manualElevator" | "manualWarehouse">;
+
+interface TutorialOverlayUi {
+  masks: Phaser.GameObjects.Rectangle[];
+  outline: Phaser.GameObjects.Rectangle;
+  focusZone: Phaser.GameObjects.Zone;
+  panel: Phaser.GameObjects.Graphics;
+  titleText: Phaser.GameObjects.Text;
+  bodyText: Phaser.GameObjects.Text;
+  okButton: Phaser.GameObjects.Graphics;
+  okButtonText: Phaser.GameObjects.Text;
+}
+
+interface TutorialTarget {
+  rect: Phaser.Geom.Rectangle;
+  isWorldSpace: boolean;
+}
+
 interface MineShaftRowUi {
   shaftId: number;
   mode?: "unlocked" | "locked" | "hidden";
@@ -982,6 +1017,7 @@ export class MineScene extends Phaser.Scene {
   private elevatorShaftBottom!: Phaser.GameObjects.Image;
   private elevatorShaftMiddleSegments: Phaser.GameObjects.Image[] = [];
   private elevatorClickTarget!: WorldClickTargetUi;
+  private warehouseClickTarget!: WorldClickTargetUi;
   private elevatorCabin!: Phaser.GameObjects.Image;
   private flowOreIcon!: Phaser.GameObjects.Image;
   private warehouseWorker!: Phaser.GameObjects.Image;
@@ -1010,6 +1046,7 @@ export class MineScene extends Phaser.Scene {
   private managerPanelScrollY = 0;
   private managerPanelHireOfferUi: ManagerPanelHireOfferUi[] = [];
   private managerPanelAssignedUi: ManagerPanelAssignedUi | null = null;
+  private managerPanelAssignButtonUi: ManagerPanelButtonUi | null = null;
   private mapViewContainer: Phaser.GameObjects.Container | undefined;
   private mapMoneyText: Phaser.GameObjects.Text | undefined;
   private mapSuperCashPanel: CurrencyPanelUi | undefined;
@@ -1044,6 +1081,14 @@ export class MineScene extends Phaser.Scene {
   private displayedSuperCashValue: number | undefined;
   private activeSuperCashAnimationTweens = 0;
   private activeSuperCashAnimationIcons = new Set<Phaser.GameObjects.Image>();
+  private tutorialOverlay: TutorialOverlayUi | undefined;
+  private tutorialProgressIndex = 0;
+  private tutorialCompleted = false;
+  private tutorialPendingActionStep: TutorialBlockingActionStep | null = null;
+  private tutorialManagerUnlockAcknowledged = false;
+  private tutorialCompletionPending = false;
+  private managerBoostHintShown = false;
+  private managerBoostHintActive = false;
 
   constructor(balance: BalanceConfig, saveRepository?: SaveGameRepository) {
     super("MineScene");
@@ -1055,6 +1100,7 @@ export class MineScene extends Phaser.Scene {
       saveRepository,
       isDebug: IS_DEBUG
     });
+    this.loadTutorialProgress();
   }
 
   preload(): void {
@@ -1127,6 +1173,7 @@ export class MineScene extends Phaser.Scene {
     this.createUi();
     this.applyFrame(initialFrame, 0);
     this.advanceElevatorAnimation(0);
+    this.updateTutorialOverlay(initialFrame.state);
 
     if (this.viewModel.offlineProgressResult !== null) {
       this.handleActiveMineOfflineCashAfterProgress();
@@ -3983,7 +4030,7 @@ export class MineScene extends Phaser.Scene {
       this.applyFrame(this.viewModel.startElevatorCycle(), this.time.now);
     });
 
-    this.createClickTarget(138, 72, 260, 130, "Warehouse", () => {
+    this.warehouseClickTarget = this.createClickTarget(138, 72, 260, 130, "Warehouse", () => {
       this.applyFrame(this.viewModel.startWarehouseCycle(), this.time.now);
     });
   }
@@ -4040,6 +4087,7 @@ export class MineScene extends Phaser.Scene {
     this.processSuperCashAwardEvents(events, state);
     this.processSuperCashSpentEvents(events, state);
     this.applyUiState(state, events, buyMode);
+    this.updateTutorialOverlay(state);
   }
 
   private refreshMineShaftRows(state: GameState, visual: SimulationFrame["visual"], time: number): void {
@@ -4620,6 +4668,7 @@ export class MineScene extends Phaser.Scene {
     this.managerPanelScrollY = 0;
     this.managerPanelHireOfferUi = [];
     this.managerPanelAssignedUi = null;
+    this.managerPanelAssignButtonUi = null;
     this.lastManagerPanelRefreshSecond = -1;
   }
 
@@ -4639,6 +4688,7 @@ export class MineScene extends Phaser.Scene {
     this.managerPanel?.destroy(true);
     this.managerPanelHireOfferUi = [];
     this.managerPanelAssignedUi = null;
+    this.managerPanelAssignButtonUi = null;
 
     const container = this.pinUi(this.add.container(0, 0).setDepth(MANAGER_PANEL_DEPTH));
     this.managerPanel = container;
@@ -5097,6 +5147,9 @@ export class MineScene extends Phaser.Scene {
         this.applyFrame(this.viewModel.assignManager(manager.id, manager.area, targetShaftId ?? 1), this.time.now);
       }
     );
+    if (manager.area === this.activeManagerPanelArea && !assignedToDifferentShaft) {
+      this.managerPanelAssignButtonUi ??= assignButton;
+    }
     (container as ManagerPanelContentContainer).scrollInteractiveZones?.push(assignButton.zone);
   }
 
@@ -5923,6 +5976,748 @@ export class MineScene extends Phaser.Scene {
     graphics.strokeRoundedRect(x + 0.75, y + 0.75, width - 1.5, height - 1.5, style.radius);
     return graphics;
   }
+
+  private loadTutorialProgress(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(TUTORIAL_STORAGE_KEY);
+      if (raw === null) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as {
+        completed?: unknown;
+        progressIndex?: unknown;
+        managerUnlockAcknowledged?: unknown;
+        managerBoostHintShown?: unknown;
+      };
+      this.tutorialCompleted = parsed.completed === true;
+      this.tutorialProgressIndex =
+        typeof parsed.progressIndex === "number" && Number.isInteger(parsed.progressIndex)
+          ? Phaser.Math.Clamp(parsed.progressIndex, 0, tutorialStepOrder.length)
+          : 0;
+      this.tutorialManagerUnlockAcknowledged = parsed.managerUnlockAcknowledged === true;
+      this.managerBoostHintShown = parsed.managerBoostHintShown === true;
+    } catch {
+      this.tutorialProgressIndex = 0;
+      this.tutorialCompleted = false;
+    }
+  }
+
+  private saveTutorialProgress(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        TUTORIAL_STORAGE_KEY,
+        JSON.stringify({
+          completed: this.tutorialCompleted,
+          progressIndex: this.tutorialProgressIndex,
+          managerUnlockAcknowledged: this.tutorialManagerUnlockAcknowledged,
+          managerBoostHintShown: this.managerBoostHintShown
+        })
+      );
+    } catch {
+      // Tutorial progress is best-effort and separate from the savegame.
+    }
+  }
+
+  private updateTutorialOverlay(state: GameState): void {
+    if (this.shouldShowManagerBoostHint(state)) {
+      this.showManagerBoostHint(state);
+      return;
+    }
+
+    if (this.tutorialCompleted || this.tutorialCompletionPending || this.mapViewContainer !== undefined || this.shopSoonModalObjects !== undefined) {
+      this.destroyTutorialOverlay();
+      return;
+    }
+
+    this.advanceCompletedTutorialAction(state);
+    this.skipSatisfiedTutorialSteps(state);
+
+    const step = tutorialStepOrder[this.tutorialProgressIndex];
+    if (step === undefined) {
+      this.completeTutorial();
+      return;
+    }
+
+    if (step === "managerUnlock" && this.tutorialManagerUnlockAcknowledged) {
+      if (!this.isManagerTutorialResumeReady(state)) {
+        this.destroyTutorialOverlay();
+        return;
+      }
+
+      this.advanceTutorialStep();
+      return;
+    }
+
+    const target = this.getTutorialTarget(step, state);
+    if (target === null) {
+      this.destroyTutorialOverlay();
+      return;
+    }
+
+    if (target.isWorldSpace) {
+      this.scrollTutorialTargetIntoView(target.rect, state);
+    }
+
+    const screenRect = target.isWorldSpace ? this.worldRectToScreenRect(target.rect) : target.rect;
+    const paddedRect = clampRectToScreen(padRect(screenRect, TUTORIAL_FOCUS_PADDING));
+
+    const overlay = this.getOrCreateTutorialOverlay();
+    this.layoutTutorialOverlay(overlay, paddedRect, step, state);
+  }
+
+  private skipSatisfiedTutorialSteps(state: GameState): void {
+    let changed = false;
+
+    while (this.isTutorialStepSatisfied(tutorialStepOrder[this.tutorialProgressIndex], state)) {
+      this.tutorialProgressIndex += 1;
+      changed = true;
+    }
+
+    if (this.tutorialProgressIndex >= tutorialStepOrder.length) {
+      this.completeTutorial();
+      return;
+    }
+
+    if (changed) {
+      this.saveTutorialProgress();
+    }
+  }
+
+  private isTutorialStepSatisfied(step: TutorialStepId | undefined, state: GameState): boolean {
+    if (step === undefined) {
+      return true;
+    }
+
+    const firstShaft = state.entities.mineShafts[1];
+    const ownedMineManagers = state.managers.ownedManagers.filter((manager) => manager.area === "mineShaft" && manager.isOwned);
+    const assignedMineManager = getAssignedManagerForShaft(state, 1);
+    const firstMineManagerCost = getManagerHireCost(this.balance, "mineShaft", state.managers.hireCountsByArea.mineShaft);
+
+    switch (step) {
+      case "mineLevel2":
+        return firstShaft.level >= 2;
+      case "managerCash":
+        return state.money + EPSILON >= firstMineManagerCost || ownedMineManagers.length > 0;
+      case "managerSlot":
+        return this.activeManagerPanelArea === "mineShaft" || ownedMineManagers.length > 0;
+      case "managerHire":
+        return ownedMineManagers.length > 0;
+      case "managerAssign":
+        return assignedMineManager !== undefined;
+      case "managerAbility":
+        return assignedMineManager !== undefined && (assignedMineManager.isActive || assignedMineManager.remainingCooldownTime > 0);
+      default:
+        return false;
+    }
+  }
+
+  private getTutorialTarget(step: TutorialStepId, state: GameState): TutorialTarget | null {
+    const firstShaftRow = this.mineShaftRows[1];
+
+    switch (step) {
+      case "manualMine":
+        return { rect: getObjectBounds(firstShaftRow.mineClickZone), isWorldSpace: true };
+      case "manualElevator":
+        return { rect: getObjectBounds(this.elevatorClickTarget.zone), isWorldSpace: true };
+      case "manualWarehouse":
+        return { rect: getObjectBounds(this.warehouseClickTarget.zone), isWorldSpace: true };
+      case "mineLevel2":
+        return {
+          rect: state.upgrades.mineShafts[1].canAfford
+            ? getObjectBounds(firstShaftRow.upgradeButtonZone)
+            : this.getNextManualCashTutorialTarget(state),
+          isWorldSpace: true
+        };
+      case "managerUnlock":
+        return {
+          rect: getObjectBounds(firstShaftRow.managerSlotZone),
+          isWorldSpace: true
+        };
+      case "managerCash":
+        return { rect: this.getNextManualCashTutorialTarget(state), isWorldSpace: true };
+      case "managerSlot":
+        return { rect: getObjectBounds(firstShaftRow.managerSlotZone), isWorldSpace: true };
+      case "managerHire":
+        if (this.activeManagerPanelArea !== "mineShaft") {
+          return { rect: getObjectBounds(firstShaftRow.managerSlotZone), isWorldSpace: true };
+        }
+        return { rect: getObjectBounds(this.managerPanelHireOfferUi[0]?.button.zone ?? firstShaftRow.managerSlotZone), isWorldSpace: false };
+      case "managerAssign":
+        if (this.activeManagerPanelArea !== "mineShaft") {
+          return { rect: getObjectBounds(firstShaftRow.managerSlotZone), isWorldSpace: true };
+        }
+        return { rect: getObjectBounds(this.managerPanelAssignButtonUi?.zone ?? firstShaftRow.managerSlotZone), isWorldSpace: false };
+      case "managerOtherAreas":
+        return {
+          rect: unionRects([
+            getObjectBounds(this.managerSlots.elevator.slotZone),
+            getObjectBounds(this.managerSlots.warehouse.slotZone)
+          ]),
+          isWorldSpace: true
+        };
+      case "managerAbility": {
+        const assignedMineManager = getAssignedManagerForShaft(state, 1);
+        if (assignedMineManager === undefined) {
+          return { rect: getObjectBounds(firstShaftRow.managerSlotZone), isWorldSpace: true };
+        }
+        return { rect: getObjectBounds(firstShaftRow.managerAbilityZone), isWorldSpace: true };
+      }
+      case "managerAllBoost":
+        if (this.allManagerAbilitiesButton === undefined) {
+          return null;
+        }
+
+        return { rect: getObjectBounds(this.allManagerAbilitiesButton.zone), isWorldSpace: false };
+    }
+  }
+
+  private shouldShowManagerBoostHint(state: GameState): boolean {
+    if (!this.tutorialCompleted || this.managerBoostHintShown || this.mapViewContainer !== undefined || this.shopSoonModalObjects !== undefined) {
+      return false;
+    }
+
+    if (this.activeManagerPanelArea !== null || this.managerPanel !== undefined) {
+      return false;
+    }
+
+    const ownedManagerCount = state.managers.ownedManagers.filter((manager) => manager.isOwned).length;
+    return ownedManagerCount >= 3;
+  }
+
+  private showManagerBoostHint(state: GameState): void {
+    if (this.allManagerAbilitiesButton === undefined) {
+      return;
+    }
+
+    this.managerBoostHintActive = true;
+    const targetRect = getObjectBounds(this.allManagerAbilitiesButton.zone);
+    const paddedRect = clampRectToScreen(padRect(targetRect, TUTORIAL_FOCUS_PADDING));
+    const overlay = this.getOrCreateTutorialOverlay();
+
+    this.layoutTutorialOverlay(overlay, paddedRect, "managerAllBoost", state);
+  }
+
+  private getNextManualCashTutorialTarget(state: GameState): Phaser.Geom.Rectangle {
+    const firstShaft = state.entities.mineShafts[1];
+
+    if (state.entities.warehouse.storedOre > EPSILON) {
+      return getObjectBounds(this.warehouseClickTarget.zone);
+    }
+
+    if (firstShaft.storedOre > EPSILON || state.entities.elevator.carriedOre > EPSILON) {
+      return getObjectBounds(this.elevatorClickTarget.zone);
+    }
+
+    return getObjectBounds(this.mineShaftRows[1].mineClickZone);
+  }
+
+  private getOrCreateTutorialOverlay(): TutorialOverlayUi {
+    if (this.tutorialOverlay !== undefined) {
+      return this.tutorialOverlay;
+    }
+
+    const masks = [
+      this.pinUi(this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7).setOrigin(0, 0).setDepth(TUTORIAL_DEPTH)),
+      this.pinUi(this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7).setOrigin(0, 0).setDepth(TUTORIAL_DEPTH)),
+      this.pinUi(this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7).setOrigin(0, 0).setDepth(TUTORIAL_DEPTH)),
+      this.pinUi(this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7).setOrigin(0, 0).setDepth(TUTORIAL_DEPTH))
+    ];
+    masks.forEach((mask) => {
+      mask.setInteractive().on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+      });
+    });
+    const outline = this.pinUi(
+      this.add
+        .rectangle(0, 0, 10, 10)
+        .setOrigin(0, 0)
+        .setStrokeStyle(4, 0xf6d36e, 1)
+        .setDepth(TUTORIAL_DEPTH + 1)
+    );
+    const focusZone = this.pinUi(
+      this.add
+        .zone(0, 0, 10, 10)
+        .setOrigin(0, 0)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(TUTORIAL_DEPTH + 3)
+    );
+    const panel = this.pinUi(this.add.graphics().setDepth(TUTORIAL_DEPTH + 2));
+    const titleText = this.pinUi(
+      this.add
+        .text(0, 0, "", topBarTextStyle(20, "#f7e5b2"))
+        .setDepth(TUTORIAL_DEPTH + 3)
+    );
+    const bodyText = this.pinUi(
+      this.add
+        .text(0, 0, "", {
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: "15px",
+          fontStyle: "700",
+          color: "#dcecf1",
+          lineSpacing: 5,
+          wordWrap: { width: 374, useAdvancedWrap: true }
+        })
+        .setDepth(TUTORIAL_DEPTH + 3)
+    );
+    const okButton = this.pinUi(this.add.graphics().setDepth(TUTORIAL_DEPTH + 3).setVisible(false));
+    const okButtonText = this.pinUi(
+      this.add
+        .text(0, 0, "OK", smallUiTextStyle(15, "#fff8de"))
+        .setOrigin(0.5)
+        .setDepth(TUTORIAL_DEPTH + 4)
+        .setVisible(false)
+    );
+
+    focusZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.handleTutorialFocusedClick();
+    });
+
+    this.tutorialOverlay = { masks, outline, focusZone, panel, titleText, bodyText, okButton, okButtonText };
+    return this.tutorialOverlay;
+  }
+
+  private layoutTutorialOverlay(
+    overlay: TutorialOverlayUi,
+    focusRect: Phaser.Geom.Rectangle,
+    step: TutorialStepId,
+    state: GameState
+  ): void {
+    overlay.masks[0].setPosition(0, 0).setSize(GAME_WIDTH, focusRect.y);
+    overlay.masks[1].setPosition(0, focusRect.bottom).setSize(GAME_WIDTH, Math.max(0, GAME_HEIGHT - focusRect.bottom));
+    overlay.masks[2].setPosition(0, focusRect.y).setSize(focusRect.x, focusRect.height);
+    overlay.masks[3].setPosition(focusRect.right, focusRect.y).setSize(Math.max(0, GAME_WIDTH - focusRect.right), focusRect.height);
+    overlay.outline.setPosition(focusRect.x, focusRect.y).setSize(focusRect.width, focusRect.height);
+    overlay.focusZone.setPosition(focusRect.x, focusRect.y).setSize(focusRect.width, focusRect.height);
+    overlay.focusZone.setInteractive({ useHandCursor: true });
+
+    const showOkButton = step === "managerUnlock";
+    const copy = getTutorialCopy(step, state, this.balance, this.tutorialPendingActionStep === step);
+    const panelWidth = 420;
+    const panelHeight = showOkButton ? 128 : 142;
+    const panelPosition = getTutorialPanelPosition(focusRect, panelWidth, panelHeight);
+
+    overlay.panel.clear();
+    overlay.panel.fillStyle(0x14222c, 0.98);
+    overlay.panel.fillRoundedRect(panelPosition.x, panelPosition.y, panelWidth, panelHeight, 14);
+    overlay.panel.fillStyle(0x2d4652, 0.7);
+    overlay.panel.fillRoundedRect(panelPosition.x + 5, panelPosition.y + 5, panelWidth - 10, panelHeight - 10, 10);
+    overlay.panel.lineStyle(2, 0xf6d36e, 0.92);
+    overlay.panel.strokeRoundedRect(panelPosition.x + 1, panelPosition.y + 1, panelWidth - 2, panelHeight - 2, 14);
+    overlay.titleText.setPosition(panelPosition.x + 22, panelPosition.y + 18).setText(copy.title);
+    overlay.bodyText.setPosition(panelPosition.x + 22, panelPosition.y + 52).setText(copy.body);
+
+    overlay.okButton.setVisible(showOkButton);
+    overlay.okButtonText.setVisible(showOkButton);
+
+    if (showOkButton) {
+      const okWidth = 74;
+      const okHeight = 30;
+      const okX = panelPosition.x + panelWidth - okWidth - 22;
+      const okY = panelPosition.y + panelHeight - okHeight - 18;
+
+      overlay.okButton.clear();
+      overlay.okButton.fillStyle(0x4f7f44, 1);
+      overlay.okButton.fillRoundedRect(okX, okY, okWidth, okHeight, 8);
+      overlay.okButton.lineStyle(2, 0xbff09a, 0.9);
+      overlay.okButton.strokeRoundedRect(okX + 1, okY + 1, okWidth - 2, okHeight - 2, 8);
+      overlay.okButtonText.setPosition(okX + okWidth / 2, okY + okHeight / 2 - 1);
+      overlay.focusZone.setPosition(okX, okY).setSize(okWidth, okHeight);
+      overlay.focusZone.setInteractive({ useHandCursor: true });
+    } else {
+      overlay.okButton.clear();
+    }
+  }
+
+  private handleTutorialFocusedClick(): void {
+    const state = this.latestState;
+    if (state === undefined || this.tutorialCompleted || this.tutorialCompletionPending || this.tutorialPendingActionStep !== null) {
+      if (state !== undefined && this.managerBoostHintActive) {
+        this.dismissManagerBoostHint();
+      }
+      return;
+    }
+
+    if (this.managerBoostHintActive) {
+      if (this.allManagerAbilitiesButton?.enabled === true) {
+        this.applyFrame(this.viewModel.activateAllManagerAbilities(), this.time.now);
+      }
+
+      this.dismissManagerBoostHint();
+      return;
+    }
+
+    const step = tutorialStepOrder[this.tutorialProgressIndex];
+
+    switch (step) {
+      case "manualMine":
+        this.tutorialPendingActionStep = "manualMine";
+        this.applyFrame(this.viewModel.manualMineAction(1), this.time.now);
+        return;
+      case "manualElevator":
+        this.tutorialPendingActionStep = "manualElevator";
+        this.applyFrame(this.viewModel.manualElevatorAction(), this.time.now);
+        return;
+      case "manualWarehouse":
+        this.tutorialPendingActionStep = "manualWarehouse";
+        this.applyFrame(this.viewModel.manualWarehouseAction(), this.time.now);
+        return;
+      case "mineLevel2":
+        if (state.upgrades.mineShafts[1].canAfford) {
+          this.queueSuperCashAnimationSourceFrom(this.mineShaftRows[1].upgradeButtonZone);
+          this.applyFrame(this.viewModel.upgradeMineShaft(1), this.time.now);
+        } else {
+          this.handleTutorialCashClick(state);
+        }
+        return;
+      case "managerUnlock":
+        if (this.isManagerTutorialResumeReady(state)) {
+          this.advanceTutorialStep();
+          return;
+        }
+
+        this.tutorialManagerUnlockAcknowledged = true;
+        this.saveTutorialProgress();
+        this.destroyTutorialOverlay();
+        return;
+      case "managerCash":
+        this.handleTutorialCashClick(state);
+        return;
+      case "managerSlot":
+        this.openManagerPanel("mineShaft", state, 1);
+        this.advanceTutorialStep();
+        this.updateTutorialOverlay(this.latestState ?? state);
+        return;
+      case "managerHire":
+        if (this.activeManagerPanelArea !== "mineShaft") {
+          this.openManagerPanel("mineShaft", state, 1);
+          return;
+        }
+        this.applyFrame(this.viewModel.purchaseManager("mineShaft"), this.time.now);
+        return;
+      case "managerAssign": {
+        const manager = state.managers.ownedManagers.find((entry) => entry.area === "mineShaft" && entry.isOwned && !entry.isAssigned);
+        if (manager !== undefined) {
+          this.closeManagerPanel();
+          this.applyFrame(this.viewModel.assignManager(manager.id, "mineShaft", 1), this.time.now);
+        }
+        return;
+      }
+      case "managerOtherAreas":
+        this.advanceTutorialStep();
+        this.updateTutorialOverlay(this.latestState ?? state);
+        return;
+      case "managerAbility":
+        this.tutorialCompletionPending = true;
+        this.activateAssignedManagerAbility("mineShaft", 1);
+        this.time.delayedCall(0, () => {
+          this.completeTutorial();
+        });
+        return;
+      case "managerAllBoost":
+        this.dismissManagerBoostHint();
+        return;
+    }
+  }
+
+  private dismissManagerBoostHint(): void {
+    this.managerBoostHintActive = false;
+    this.managerBoostHintShown = true;
+    this.saveTutorialProgress();
+    this.destroyTutorialOverlay();
+  }
+
+  private handleTutorialCashClick(state: GameState): void {
+    const firstShaft = state.entities.mineShafts[1];
+
+    if (state.entities.warehouse.storedOre > EPSILON) {
+      this.applyFrame(this.viewModel.manualWarehouseAction(), this.time.now);
+      return;
+    }
+
+    if (firstShaft.storedOre > EPSILON || state.entities.elevator.carriedOre > EPSILON) {
+      this.applyFrame(this.viewModel.manualElevatorAction(), this.time.now);
+      return;
+    }
+
+    this.applyFrame(this.viewModel.manualMineAction(1), this.time.now);
+  }
+
+  private advanceTutorialStep(): void {
+    this.tutorialPendingActionStep = null;
+    this.tutorialProgressIndex += 1;
+    this.saveTutorialProgress();
+    if (this.latestState !== undefined) {
+      this.updateTutorialOverlay(this.latestState);
+    }
+  }
+
+  private completeTutorial(): void {
+    this.tutorialCompleted = true;
+    this.tutorialProgressIndex = tutorialStepOrder.length;
+    this.tutorialPendingActionStep = null;
+    this.tutorialCompletionPending = false;
+    this.tutorialManagerUnlockAcknowledged = true;
+    this.saveTutorialProgress();
+    this.destroyTutorialOverlay();
+  }
+
+  private destroyTutorialOverlay(): void {
+    if (this.tutorialOverlay === undefined) {
+      return;
+    }
+
+    this.tutorialOverlay.masks.forEach((object) => object.destroy());
+    this.tutorialOverlay.outline.destroy();
+    this.tutorialOverlay.focusZone.destroy();
+    this.tutorialOverlay.panel.destroy();
+    this.tutorialOverlay.titleText.destroy();
+    this.tutorialOverlay.bodyText.destroy();
+    this.tutorialOverlay.okButton.destroy();
+    this.tutorialOverlay.okButtonText.destroy();
+    this.tutorialOverlay = undefined;
+  }
+
+  private advanceCompletedTutorialAction(state: GameState): void {
+    if (this.tutorialPendingActionStep === null) {
+      return;
+    }
+
+    if (!this.isTutorialActionComplete(this.tutorialPendingActionStep, state)) {
+      return;
+    }
+
+    this.advanceTutorialStep();
+  }
+
+  private isTutorialActionComplete(step: TutorialBlockingActionStep, state: GameState): boolean {
+    switch (step) {
+      case "manualMine":
+        return state.entities.mineShafts[1].state === "idle" && state.entities.mineShafts[1].storedOre > EPSILON;
+      case "manualElevator":
+        return state.entities.elevator.state === "idle" && state.entities.warehouse.storedOre > EPSILON;
+      case "manualWarehouse":
+        return state.entities.warehouse.state === "idle" && state.money > EPSILON;
+    }
+  }
+
+  private isManagerTutorialResumeReady(state: GameState): boolean {
+    const firstMineManagerCost = getManagerHireCost(this.balance, "mineShaft", state.managers.hireCountsByArea.mineShaft);
+    const hasMineManager = state.managers.ownedManagers.some((manager) => manager.area === "mineShaft" && manager.isOwned);
+
+    return (
+      state.entities.mineShafts[1].level >= state.managers.unlockLevel &&
+      (state.money + EPSILON >= firstMineManagerCost || hasMineManager)
+    );
+  }
+
+  private scrollTutorialTargetIntoView(rect: Phaser.Geom.Rectangle, state: GameState): void {
+    const desiredTop = rect.y - 190;
+    const desiredBottom = rect.bottom - GAME_HEIGHT + 190;
+    const maxScroll = this.getMaxCameraScroll(state);
+    const currentScroll = this.cameras.main.scrollY;
+    let nextScroll = currentScroll;
+
+    if (rect.y - currentScroll < 90) {
+      nextScroll = desiredTop;
+    } else if (rect.bottom - currentScroll > GAME_HEIGHT - 90) {
+      nextScroll = desiredBottom;
+    }
+
+    this.cameras.main.scrollY = Phaser.Math.Clamp(nextScroll, 0, maxScroll);
+  }
+
+  private worldRectToScreenRect(rect: Phaser.Geom.Rectangle): Phaser.Geom.Rectangle {
+    return new Phaser.Geom.Rectangle(rect.x, rect.y - this.cameras.main.scrollY, rect.width, rect.height);
+  }
+}
+
+const tutorialStepOrder: readonly TutorialStepId[] = [
+  "manualMine",
+  "manualElevator",
+  "manualWarehouse",
+  "mineLevel2",
+  "managerUnlock",
+  "managerCash",
+  "managerSlot",
+  "managerHire",
+  "managerAssign",
+  "managerOtherAreas",
+  "managerAbility"
+] as const;
+
+function getTutorialCopy(
+  step: TutorialStepId,
+  state: GameState,
+  balance: BalanceConfig,
+  isWaiting = false
+): { title: string; body: string } {
+  const managerLevel = state.managers.unlockLevel;
+  const managerCost = getManagerHireCost(balance, "mineShaft", state.managers.hireCountsByArea.mineShaft);
+
+  switch (step) {
+    case "manualMine":
+      return {
+        title: isWaiting ? "Mining in progress" : "Mine ore",
+        body: isWaiting
+          ? "Wait until the miner finishes and drops ore into the shaft box."
+          : "Click the shaft. The miner digs ore and drops it into the box."
+      };
+    case "manualElevator":
+      return {
+        title: isWaiting ? "Elevator moving" : "Move ore",
+        body: isWaiting
+          ? "Wait until the elevator finishes its trip and delivers ore to the surface."
+          : "Click the elevator. It collects ore from the shaft and brings it to the surface."
+      };
+    case "manualWarehouse":
+      return {
+        title: isWaiting ? "Selling ore" : "Sell ore",
+        body: isWaiting
+          ? "Wait until the warehouse worker finishes the sale and cash is added."
+          : "Click the warehouse. The worker sells the ore and earns cash."
+      };
+    case "mineLevel2":
+      return {
+        title: "Upgrade the mine to level 2",
+        body: state.upgrades.mineShafts[1].canAfford
+          ? "Buy the first shaft upgrade. More levels increase production and storage."
+          : "Earn enough cash with the mine, elevator, and warehouse. Then buy the upgrade here."
+      };
+    case "managerUnlock":
+      return {
+        title: `Managers unlock at level ${managerLevel}`,
+        body: `Managers automate work. They unlock when this mine shaft reaches level ${managerLevel}.`
+      };
+    case "managerCash":
+      return {
+        title: "Prepare for a manager",
+        body: `A mine manager costs ${formatMoney(managerCost)}. Keep running the core loop until you have enough cash.`
+      };
+    case "managerSlot":
+      return {
+        title: "Open managers",
+        body: "Click the shaft manager slot. This is where you hire and assign managers."
+      };
+    case "managerHire":
+      return {
+        title: "Hire a manager",
+        body: "Hire a manager for the shaft. Every manager comes with a random ability."
+      };
+    case "managerAssign":
+      return {
+        title: "Assign the manager",
+        body: "Assign the hired manager to the shaft. The mine will start working automatically."
+      };
+    case "managerOtherAreas":
+      return {
+        title: "Every area needs a manager",
+        body: "The elevator and warehouse also need their own managers before the full production chain is automated."
+      };
+    case "managerAbility":
+      return {
+        title: "Use the ability",
+        body: "Click the manager ability icon. Abilities give short, powerful production or cost bonuses."
+      };
+    case "managerAllBoost":
+      return {
+        title: "Boost all managers",
+        body: "This button activates every ready manager ability at once."
+      };
+  }
+}
+
+function getObjectBounds(object: Phaser.GameObjects.Zone): Phaser.Geom.Rectangle {
+  return object.getBounds(new Phaser.Geom.Rectangle());
+}
+
+function unionRects(rects: Phaser.Geom.Rectangle[]): Phaser.Geom.Rectangle {
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(...rects.map((rect) => rect.right));
+  const bottom = Math.max(...rects.map((rect) => rect.bottom));
+
+  return new Phaser.Geom.Rectangle(left, top, right - left, bottom - top);
+}
+
+function padRect(rect: Phaser.Geom.Rectangle, padding: number): Phaser.Geom.Rectangle {
+  return new Phaser.Geom.Rectangle(
+    rect.x - padding,
+    rect.y - padding,
+    rect.width + padding * 2,
+    rect.height + padding * 2
+  );
+}
+
+function clampRectToScreen(rect: Phaser.Geom.Rectangle): Phaser.Geom.Rectangle {
+  const left = Phaser.Math.Clamp(rect.left, 0, GAME_WIDTH);
+  const top = Phaser.Math.Clamp(rect.top, 0, GAME_HEIGHT);
+  const right = Phaser.Math.Clamp(rect.right, left + 1, GAME_WIDTH);
+  const bottom = Phaser.Math.Clamp(rect.bottom, top + 1, GAME_HEIGHT);
+
+  return new Phaser.Geom.Rectangle(left, top, right - left, bottom - top);
+}
+
+function getTutorialPanelPosition(
+  focusRect: Phaser.Geom.Rectangle,
+  panelWidth: number,
+  panelHeight: number
+): { x: number; y: number } {
+  const margin = 18;
+  const gap = 16;
+  const centeredX = Phaser.Math.Clamp(focusRect.centerX - panelWidth / 2, margin, GAME_WIDTH - panelWidth - margin);
+  const centeredY = Phaser.Math.Clamp(focusRect.centerY - panelHeight / 2, margin, GAME_HEIGHT - panelHeight - margin);
+  const candidates = [
+    { x: centeredX, y: focusRect.bottom + gap },
+    { x: centeredX, y: focusRect.y - panelHeight - gap },
+    { x: focusRect.right + gap, y: centeredY },
+    { x: focusRect.x - panelWidth - gap, y: centeredY }
+  ];
+
+  for (const candidate of candidates) {
+    const panelRect = new Phaser.Geom.Rectangle(candidate.x, candidate.y, panelWidth, panelHeight);
+    const isInsideScreen =
+      panelRect.left >= margin &&
+      panelRect.top >= margin &&
+      panelRect.right <= GAME_WIDTH - margin &&
+      panelRect.bottom <= GAME_HEIGHT - margin;
+
+    if (isInsideScreen && !Phaser.Geom.Intersects.RectangleToRectangle(panelRect, focusRect)) {
+      return candidate;
+    }
+  }
+
+  const fallback = candidates.find((candidate) => {
+    const panelRect = new Phaser.Geom.Rectangle(
+      Phaser.Math.Clamp(candidate.x, margin, GAME_WIDTH - panelWidth - margin),
+      Phaser.Math.Clamp(candidate.y, margin, GAME_HEIGHT - panelHeight - margin),
+      panelWidth,
+      panelHeight
+    );
+
+    return !Phaser.Geom.Intersects.RectangleToRectangle(panelRect, focusRect);
+  });
+
+  if (fallback !== undefined) {
+    return {
+      x: Phaser.Math.Clamp(fallback.x, margin, GAME_WIDTH - panelWidth - margin),
+      y: Phaser.Math.Clamp(fallback.y, margin, GAME_HEIGHT - panelHeight - margin)
+    };
+  }
+
+  return {
+    x: margin,
+    y: GAME_HEIGHT - panelHeight - margin
+  };
 }
 
 function topBarTextStyle(fontSize: number, color: string): Phaser.Types.GameObjects.Text.TextStyle {
