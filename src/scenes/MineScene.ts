@@ -2631,9 +2631,10 @@ export class MineScene extends Phaser.Scene {
     const pendingSeconds = mine.pendingOfflineSeconds;
     const pendingOreSold = mine.pendingOfflineOreSold;
     const mineWillChange = this.latestState?.activeMineId !== mineId;
+    const hasPendingCash = pendingCash > Number.EPSILON;
     const shouldShowOfflineCashModal =
       options.showOfflineCashModal === true &&
-      pendingCash > Number.EPSILON &&
+      hasPendingCash &&
       pendingSeconds >= 60;
 
     if (mineWillChange) {
@@ -2641,6 +2642,12 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.applyFrame(this.viewModel.setActiveMine(mineId), this.time.now);
+
+    if (hasPendingCash && !shouldShowOfflineCashModal) {
+      this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
+      this.viewModel.flushSave();
+    }
+
     this.closeMapViewToMine();
 
     const finishSwitch = () => {
