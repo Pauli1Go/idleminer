@@ -86,7 +86,6 @@ import {
 import { formatLargeNumber, formatCurrency, formatDuration, formatSignificantNumber } from "../core/formatters.ts";
 import { SimulationViewModel, type SimulationFrame } from "../game/SimulationViewModel.ts";
 import { IS_DEBUG } from "../debug/config.ts";
-import { LOADING_SPLASH_KEY } from "./BootScene.ts";
 
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 720;
@@ -247,7 +246,6 @@ const MAP_COLLECT_MARKER_WIDTH = 142;
 const MAP_COLLECT_MARKER_HEIGHT = 42;
 const MAP_LOCK_BUTTON_WIDTH = 158;
 const MAP_LOCK_BUTTON_HEIGHT = 58;
-const MINE_SWITCH_LOADING_DEPTH = MAP_VIEW_DEPTH + 220;
 
 const MANAGER_SLOT_WIDTH = 220;
 const MANAGER_SLOT_HEIGHT = 118;
@@ -966,8 +964,6 @@ export class MineScene extends Phaser.Scene {
   private mapSuperCashText: Phaser.GameObjects.Text | undefined;
   private mapMineAreaUi: MapMineAreaUi[] = [];
   private mapDetailPanel: MapDetailPanelUi | undefined;
-  private mineSwitchLoadingContainer: Phaser.GameObjects.Container | undefined;
-  private mineSwitchLoadingTimer: Phaser.Time.TimerEvent | undefined;
   private latestState: GameState | undefined;
   private elevatorAnimationQueue: ElevatorAnimationStep[] = [];
   private activeElevatorAnimation:
@@ -1184,8 +1180,6 @@ export class MineScene extends Phaser.Scene {
   }
 
   private handleShutdown(): void {
-    this.hideMineSwitchLoading();
-
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     }
@@ -2630,16 +2624,11 @@ export class MineScene extends Phaser.Scene {
     const pendingCash = mine.pendingOfflineCash;
     const pendingSeconds = mine.pendingOfflineSeconds;
     const pendingOreSold = mine.pendingOfflineOreSold;
-    const mineWillChange = this.latestState?.activeMineId !== mineId;
     const hasPendingCash = pendingCash > Number.EPSILON;
     const shouldShowOfflineCashModal =
       options.showOfflineCashModal === true &&
       hasPendingCash &&
       pendingSeconds >= 60;
-
-    if (mineWillChange) {
-      this.showMineSwitchLoading();
-    }
 
     this.applyFrame(this.viewModel.setActiveMine(mineId), this.time.now);
 
@@ -2650,22 +2639,12 @@ export class MineScene extends Phaser.Scene {
 
     this.closeMapViewToMine();
 
-    const finishSwitch = () => {
-      this.hideMineSwitchLoading();
-
-      if (shouldShowOfflineCashModal) {
-        this.showMineOfflineCashModal(mineId, {
-          offlineSeconds: pendingSeconds,
-          moneyEarned: pendingCash,
-          oreSold: pendingOreSold
-        });
-      }
-    };
-
-    if (mineWillChange) {
-      this.mineSwitchLoadingTimer = this.time.delayedCall(1000, finishSwitch);
-    } else {
-      finishSwitch();
+    if (shouldShowOfflineCashModal) {
+      this.showMineOfflineCashModal(mineId, {
+        offlineSeconds: pendingSeconds,
+        moneyEarned: pendingCash,
+        oreSold: pendingOreSold
+      });
     }
   }
 
@@ -2791,39 +2770,6 @@ export class MineScene extends Phaser.Scene {
     );
 
     return { objects: [bg, text, zone], zone };
-  }
-
-  private showMineSwitchLoading(): void {
-    this.hideMineSwitchLoading();
-
-    const overlay = this.pinUi(
-      this.add
-        .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x061018, 0.86)
-        .setInteractive()
-    );
-    const splash = this.pinUi(
-      this.add
-        .image(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 26, LOADING_SPLASH_KEY)
-        .setDisplaySize(330, 186)
-    );
-    const text = this.pinUi(
-      this.add
-        .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 92, "Loading mine... 100%", topBarTextStyle(22, "#f6e8bb"))
-        .setOrigin(0.5)
-    );
-
-    this.mineSwitchLoadingContainer = this.pinUi(
-      this.add
-        .container(0, 0, [overlay, splash, text])
-        .setDepth(MINE_SWITCH_LOADING_DEPTH)
-    );
-  }
-
-  private hideMineSwitchLoading(): void {
-    this.mineSwitchLoadingTimer?.remove(false);
-    this.mineSwitchLoadingTimer = undefined;
-    this.mineSwitchLoadingContainer?.destroy(true);
-    this.mineSwitchLoadingContainer = undefined;
   }
 
   private showMineOfflineCashModal(
