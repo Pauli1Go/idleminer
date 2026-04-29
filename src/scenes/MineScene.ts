@@ -613,7 +613,7 @@ const mineSpecificAssetManifest = {
   ).href
 } satisfies Record<string, string>;
 
-export const assetManifest = {
+const coreAssetManifest = {
   "map-water-texture": mapWaterTextureUrl,
   "background-surface": backgroundSurfaceUrl,
   "background-underground": backgroundUndergroundUrl,
@@ -681,6 +681,10 @@ export const assetManifest = {
   "ability-movement-speed": abilityMovementSpeedUrl,
   "ability-capacity-boost": abilityCapacityBoostUrl,
   "ability-cost-reduction": abilityCostReductionUrl,
+} satisfies Record<string, string>;
+
+export const assetManifest = {
+  ...coreAssetManifest,
   ...mineSpecificAssetManifest
 } satisfies Record<string, string>;
 
@@ -851,6 +855,14 @@ interface WorldClickTargetUi {
 
 interface MineShaftRowUi {
   shaftId: number;
+  mode?: "unlocked" | "locked" | "hidden";
+  unlockedObjects: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible>;
+  lockedObjects: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible>;
+  panelFrameDrawn?: boolean;
+  managerFrameCacheKey?: string;
+  lockedPlaceholderCacheKey?: string;
+  staticStateKey?: string;
+  lockedStateKey?: string;
   managerSlotX: number;
   managerSlotY: number;
   backWall: Phaser.GameObjects.Image;
@@ -1025,6 +1037,9 @@ export class MineScene extends Phaser.Scene {
   private activeBuyMode: UpgradeBuyMode = 1;
   private activeManagerAbilityTab: ManagerAbilityType | "all" = "all";
   private appliedMineVisualId: MineId | null = null;
+  private loadingMineAssets: MineId | null = null;
+  private pendingFrameAfterMineAssetLoad: { frame: SimulationFrame; time: number } | undefined;
+  private renderedElevatorShaftId = -1;
   private pendingSuperCashAnimationSource: ScreenPoint | undefined;
   private displayedSuperCashValue: number | undefined;
   private activeSuperCashAnimationTweens = 0;
@@ -1043,11 +1058,52 @@ export class MineScene extends Phaser.Scene {
   }
 
   preload(): void {
-    Object.entries(assetManifest).forEach(([key, url]) => {
+    this.queueAssetManifest(coreAssetManifest);
+    this.queueMineSpecificAssets(this.viewModel.getInitialFrame().state.activeMineId);
+  }
+
+  private queueAssetManifest(manifest: Record<string, string>): void {
+    Object.entries(manifest).forEach(([key, url]) => {
       if (!this.textures.exists(key)) {
         this.load.image(key, url);
       }
     });
+  }
+
+  private queueMineSpecificAssets(mineId: MineId): void {
+    this.queueAssetManifest(Object.fromEntries(getMineSpecificAssetEntries(mineId)));
+  }
+
+  private areMineSpecificAssetsLoaded(mineId: MineId): boolean {
+    return getMineSpecificAssetEntries(mineId).every(([key]) => this.textures.exists(key));
+  }
+
+  private applyFrameWhenMineAssetsReady(frame: SimulationFrame, time: number): void {
+    const mineId = frame.state.activeMineId;
+
+    if (this.areMineSpecificAssetsLoaded(mineId)) {
+      this.applyFrame(frame, time);
+      return;
+    }
+
+    this.pendingFrameAfterMineAssetLoad = { frame, time };
+
+    if (this.loadingMineAssets !== null) {
+      return;
+    }
+
+    this.loadingMineAssets = mineId;
+    this.queueMineSpecificAssets(mineId);
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      this.loadingMineAssets = null;
+      const pendingFrame = this.pendingFrameAfterMineAssetLoad;
+      this.pendingFrameAfterMineAssetLoad = undefined;
+
+      if (pendingFrame !== undefined) {
+        this.applyFrameWhenMineAssetsReady(pendingFrame.frame, this.time.now);
+      }
+    });
+    this.load.start();
   }
 
   create(): void {
@@ -1080,7 +1136,7 @@ export class MineScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     const frame = this.viewModel.update(delta / 1000);
-    this.applyFrame(frame, time);
+    this.applyFrameWhenMineAssetsReady(frame, time);
     this.advanceElevatorAnimation(delta);
   }
 
@@ -1554,6 +1610,15 @@ export class MineScene extends Phaser.Scene {
     return null;
   }
 
+  private isMineShaftRowNearViewport(shaftId: number): boolean {
+    const rowCenterY = this.getShaftY(MINE_SHAFT_BACK_WALL_Y, shaftId);
+    const preloadMargin = MINE_SHAFT_VERTICAL_SPACING;
+    const viewportTop = this.cameras.main.scrollY - preloadMargin;
+    const viewportBottom = this.cameras.main.scrollY + GAME_HEIGHT + preloadMargin;
+
+    return rowCenterY + MINE_SHAFT_VERTICAL_SPACING >= viewportTop && rowCenterY - MINE_SHAFT_VERTICAL_SPACING <= viewportBottom;
+  }
+
   private getMaxCameraScroll(state: GameState): number {
     return Math.max(0, this.getVisibleWorldHeight(state) - GAME_HEIGHT);
   }
@@ -1829,6 +1894,51 @@ export class MineScene extends Phaser.Scene {
 
     const rowUi: MineShaftRowUi = {
       shaftId,
+      unlockedObjects: [
+        backWall,
+        floor,
+        supports,
+        pickupBox,
+        oreDeposit,
+        miner,
+        storageText,
+        routeText,
+        panelFrame,
+        levelBadge,
+        titleText,
+        levelText,
+        mainLabelText,
+        mainCurrentText,
+        mainNextText,
+        secondaryLabelText,
+        secondaryCurrentText,
+        secondaryNextText,
+        costText,
+        buyCountText,
+        upgradeButtonImage,
+        upgradeButtonText,
+        upgradeButtonZone,
+        ...decorations,
+        managerFrame,
+        managerTitleText,
+        managerEmptySlotImage,
+        managerPortraitImage,
+        managerRankText,
+        managerStatusText,
+        managerTimerText,
+        managerAbilityImage,
+        managerAbilityZone,
+        managerSlotZone,
+        mineClickZone
+      ],
+      lockedObjects: [
+        lockedPlaceholderFrame,
+        lockedTitleText,
+        lockedHintText,
+        unlockButtonImage,
+        unlockButtonText,
+        unlockButtonZone
+      ],
       managerSlotX,
       managerSlotY,
       backWall,
@@ -2673,12 +2783,10 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.setCurrencyPanelVisible(this.mapSuperCashPanel, this.isSuperCashVisible(state));
-    this.mapMoneyText?.setText(formatMoney(state.money));
-    if (this.mapMoneyText !== undefined) {
+    if (this.mapMoneyText !== undefined && setTextIfChanged(this.mapMoneyText, formatMoney(state.money))) {
       fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
     }
-    this.mapSuperCashText?.setText(formatSuperCash(this.getDisplayedSuperCashValue(state)));
-    if (this.mapSuperCashText !== undefined) {
+    if (this.mapSuperCashText !== undefined && setTextIfChanged(this.mapSuperCashText, formatSuperCash(this.getDisplayedSuperCashValue(state)))) {
       fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
     }
 
@@ -2829,10 +2937,10 @@ export class MineScene extends Phaser.Scene {
       hasPendingCash &&
       pendingSeconds >= 60;
 
-    this.applyFrame(this.viewModel.setActiveMine(mineId), this.time.now);
+    this.applyFrameWhenMineAssetsReady(this.viewModel.setActiveMine(mineId), this.time.now);
 
     if (hasPendingCash && !shouldShowOfflineCashModal) {
-      this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
+      this.applyFrameWhenMineAssetsReady(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
       this.viewModel.flushSave();
     }
 
@@ -3175,28 +3283,28 @@ export class MineScene extends Phaser.Scene {
       return;
     }
 
-    panel.frame.setVisible(visible);
-    panel.icon.setVisible(visible);
-    panel.text.setVisible(visible);
+    setVisibleIfChanged(panel.frame, visible);
+    setVisibleIfChanged(panel.icon, visible);
+    setVisibleIfChanged(panel.text, visible);
   }
 
   private refreshCurrencyPanels(state: GameState): void {
     this.setCurrencyPanelVisible(this.superCashPanel, this.isSuperCashVisible(state));
-    this.moneyText.setText(formatMoney(state.money));
-    fitTextToWidth(this.moneyText, MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    if (setTextIfChanged(this.moneyText, formatMoney(state.money))) {
+      fitTextToWidth(this.moneyText, MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    }
 
     const superCashValue = this.getDisplayedSuperCashValue(state);
-    this.superCashText.setText(formatSuperCash(superCashValue));
-    fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
+    if (setTextIfChanged(this.superCashText, formatSuperCash(superCashValue))) {
+      fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
+    }
 
-    this.mapMoneyText?.setText(formatMoney(state.money));
-    if (this.mapMoneyText !== undefined) {
+    if (this.mapMoneyText !== undefined && setTextIfChanged(this.mapMoneyText, formatMoney(state.money))) {
       fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
     }
 
     this.setCurrencyPanelVisible(this.mapSuperCashPanel, this.isSuperCashVisible(state));
-    this.mapSuperCashText?.setText(formatSuperCash(superCashValue));
-    if (this.mapSuperCashText !== undefined) {
+    if (this.mapSuperCashText !== undefined && setTextIfChanged(this.mapSuperCashText, formatSuperCash(superCashValue))) {
       fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
     }
   }
@@ -3207,10 +3315,10 @@ export class MineScene extends Phaser.Scene {
 
   private refreshSuperCashDisplay(): void {
     const value = this.getDisplayedSuperCashValue(this.latestState);
-    this.superCashText.setText(formatSuperCash(value));
-    fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
-    this.mapSuperCashText?.setText(formatSuperCash(value));
-    if (this.mapSuperCashText !== undefined) {
+    if (setTextIfChanged(this.superCashText, formatSuperCash(value))) {
+      fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
+    }
+    if (this.mapSuperCashText !== undefined && setTextIfChanged(this.mapSuperCashText, formatSuperCash(value))) {
       fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
     }
   }
@@ -3916,6 +4024,7 @@ export class MineScene extends Phaser.Scene {
     this.refreshDepthBlockades(state);
     this.clampCameraScroll(state);
     this.refreshElevatorShaftVisual(state);
+    this.refreshElevatorShaftVisibility(state);
     this.refreshMineShaftRows(state, visual, time);
     this.applyElevatorVisual(visual.elevatorCabin, visual.elevatorPositionRatio, state);
     this.applyWarehouseVisual(
@@ -3940,11 +4049,6 @@ export class MineScene extends Phaser.Scene {
       const row = this.mineShaftRows[shaftId];
       const shaftState = state.entities.mineShafts[shaftId];
       const shaftVisual = visual.mineShafts[shaftId];
-      const preview = state.upgrades.mineShafts[shaftId];
-      const assignedManager = getAssignedManagerForShaft(state, shaftId);
-      const automated = state.managers.automationEnabledByShaft[shaftId] ?? false;
-      const managersLocked = state.managers.systemLocked;
-      const routeFeedback = this.shaftRouteFeedbackById[shaftId];
       const previousUnlocked = shaftId === 1 || state.entities.mineShafts[shaftId - 1]?.isUnlocked === true;
       const canUnlock = previousUnlocked && state.money + Number.EPSILON >= shaftState.unlockCost;
       const rowMode =
@@ -3953,27 +4057,37 @@ export class MineScene extends Phaser.Scene {
           : shaftId === nextVisibleLockedShaftId
             ? "locked"
             : "hidden";
+      const nearViewport = this.isMineShaftRowNearViewport(shaftId);
+      const effectiveRowMode = nearViewport ? rowMode : "hidden";
 
-      this.setMineShaftRowMode(row, rowMode);
+      this.setMineShaftRowMode(row, effectiveRowMode);
 
-      if (rowMode === "hidden") {
+      if (rowMode === "hidden" || !nearViewport) {
         continue;
       }
 
-      row.routeText.setVisible(routeFeedback !== undefined && routeFeedback.expiresAtSeconds > state.timeSeconds);
-      row.routeText.setText(routeFeedback?.text ?? "");
+      const routeFeedback = this.shaftRouteFeedbackById[shaftId];
+      const routeVisible = routeFeedback !== undefined && routeFeedback.expiresAtSeconds > state.timeSeconds;
+      setVisibleIfChanged(row.routeText, routeVisible);
+      setTextIfChanged(row.routeText, routeVisible ? routeFeedback?.text ?? "" : "");
 
       if (!shaftState.isUnlocked) {
-        this.drawLockedShaftPlaceholder(row, canUnlock, previousUnlocked);
-        row.unlockButtonText.setText(`Unlock ${formatAmount(shaftState.unlockCost)}`);
-        row.lockedHintText.setText(
-          previousUnlocked
-            ? canUnlock
-              ? "Deepen the mine and extend the elevator."
-              : "Need more cash to unlock this shaft."
-            : `Unlock Shaft ${shaftId - 1} first.`
-        );
-        this.setWorldButtonEnabled(row.unlockButtonImage, row.unlockButtonText, row.unlockButtonZone, canUnlock, true);
+        const unlockButtonText = `Unlock ${formatAmount(shaftState.unlockCost)}`;
+        const lockedHintText = previousUnlocked
+          ? canUnlock
+            ? "Deepen the mine and extend the elevator."
+            : "Need more cash to unlock this shaft."
+          : `Unlock Shaft ${shaftId - 1} first.`;
+        const lockedStateKey = `${canUnlock ? 1 : 0}|${previousUnlocked ? 1 : 0}|${unlockButtonText}|${lockedHintText}`;
+
+        if (row.lockedStateKey !== lockedStateKey) {
+          row.lockedStateKey = lockedStateKey;
+          this.drawLockedShaftPlaceholder(row, canUnlock, previousUnlocked);
+          setTextIfChanged(row.unlockButtonText, unlockButtonText);
+          setTextIfChanged(row.lockedHintText, lockedHintText);
+          this.setWorldButtonEnabled(row.unlockButtonImage, row.unlockButtonText, row.unlockButtonZone, canUnlock, true);
+        }
+
         continue;
       }
 
@@ -3994,72 +4108,118 @@ export class MineScene extends Phaser.Scene {
             ? getMineTextureKey(state.activeMineId, "mine-pickup-small")
             : getMineTextureKey(state.activeMineId, "mine-pickup-full");
 
-      row.miner.setTexture(minerTexture);
+      setTextureIfChanged(row.miner, minerTexture);
       row.miner.setPosition(
         Phaser.Math.Linear(MINE_WORKER_MINE_X, MINE_WORKER_PICKUP_X, shaftVisual.minerPositionRatio),
         this.getShaftY(MINE_WORKER_Y, shaftId)
       );
-      row.miner.setFlipX(false);
-      row.pickupBox.setTexture(pickupTexture);
-      row.storageText.setText(`${formatAmount(shaftState.storedOre)} / ${formatAmount(shaftState.capacity)}`);
-      row.titleText.setText(shaftState.displayName);
-      row.levelText.setText(`Lvl ${preview.currentLevel}`);
-      row.mainCurrentText.setText(formatRate(state.baseValues.mineShafts[shaftId].throughputPerSecond));
-      row.mainNextText.setText(preview.isMaxed ? "MAX" : formatRate(preview.previewStats.throughputPerSecond));
-      row.secondaryCurrentText.setText(formatAmount(state.baseValues.mineShafts[shaftId].bufferCapacity));
-      row.secondaryNextText.setText(preview.isMaxed ? "MAX" : formatAmount(preview.previewStats.bufferCapacity));
-      row.costText.setText(preview.isMaxed ? "MAX" : formatAmount(preview.cost));
-      row.buyCountText.setText(preview.isMaxed ? "" : `x${preview.levelsToBuy}`);
-
-      fitTextToWidth(row.mainCurrentText, 88, [18, 16, 14, 12]);
-      fitTextToWidth(row.mainNextText, 88, [18, 16, 14, 12]);
-      fitTextToWidth(row.secondaryCurrentText, 88, [14, 13, 12, 11]);
-      fitTextToWidth(row.secondaryNextText, 88, [14, 13, 12, 11]);
-      fitTextToWidth(row.costText, 120, [13, 12, 11, 10]);
-      fitTextToWidth(row.buyCountText, 54, [11, 10, 9]);
-
-      this.drawMineShaftPanelFrame(row);
-      this.drawMineShaftManagerSlotFrame(row, automated, managersLocked, assignedManager?.isActive ?? false);
-      this.setMineShaftUpgradeEnabled(row, preview.canAfford && !preview.isMaxed);
-      const showManagerSlot = shaftState.isUnlocked;
-      row.managerFrame.setVisible(showManagerSlot);
-      row.managerTitleText.setVisible(showManagerSlot);
-      row.managerSlotZone.setVisible(showManagerSlot);
-
-      row.managerEmptySlotImage.setVisible(showManagerSlot && assignedManager === undefined).setAlpha(assignedManager === undefined ? (managersLocked ? 0.52 : 0.9) : 0);
-      row.managerPortraitImage.setVisible(showManagerSlot && assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 1);
-      row.managerAbilityImage.setVisible(showManagerSlot && assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 0.92);
-      row.managerAbilityZone.setVisible(showManagerSlot && assignedManager !== undefined);
-      row.managerRankText.setVisible(showManagerSlot);
-      row.managerStatusText.setVisible(showManagerSlot);
-      row.managerTimerText.setVisible(showManagerSlot);
-
-      if (assignedManager === undefined) {
-        row.managerEmptySlotImage.setAlpha(managersLocked ? 0.52 : 0.9);
-        row.managerRankText.setText(managersLocked ? "Manager Locked" : "No Manager").setColor(managersLocked ? "#c8b39a" : "#f7f1dd");
-        row.managerStatusText
-          .setText(managersLocked ? `Mine Lvl ${state.managers.unlockLevel}` : "Tap to assign")
-          .setColor(managersLocked ? "#f08e7f" : "#bdd2d8");
-        row.managerTimerText.setText(automated ? "Automated" : "Manual");
-        row.managerAbilityZone.disableInteractive();
-      } else {
-        row.managerPortraitImage.setTexture(getManagerPortraitKey("mineShaft", assignedManager.rank));
-        row.managerAbilityImage
-          .setTexture(getAbilityIconKey(assignedManager.abilityType))
-          .setAlpha(assignedManager.isActive ? 1 : assignedManager.remainingCooldownTime > 0 ? 0.48 : 0.92)
-          .clearTint();
-        row.managerRankText.setText(formatRank(assignedManager.rank)).setColor(getRankColor(assignedManager.rank));
-        row.managerStatusText.setText(automated ? "Automated" : "Assigned").setColor(automated ? "#95f0bd" : "#f1d389");
-        row.managerTimerText.setText(formatManagerTimer(assignedManager));
-        row.managerAbilityZone.setInteractive({ useHandCursor: true });
+      if (row.miner.flipX) {
+        row.miner.setFlipX(false);
       }
+      setTextureIfChanged(row.pickupBox, pickupTexture);
+      setTextIfChanged(row.storageText, `${formatAmount(shaftState.storedOre)} / ${formatAmount(shaftState.capacity)}`);
 
-      row.mineClickChip.setText(automated ? `${shaftState.displayName} Auto` : shaftState.displayName);
+      const preview = state.upgrades.mineShafts[shaftId];
+      const assignedManager = getAssignedManagerForShaft(state, shaftId);
+      const automated = state.managers.automationEnabledByShaft[shaftId] ?? false;
+      const managersLocked = state.managers.systemLocked;
+      const mainCurrentText = formatRate(state.baseValues.mineShafts[shaftId].throughputPerSecond);
+      const mainNextText = preview.isMaxed ? "MAX" : formatRate(preview.previewStats.throughputPerSecond);
+      const secondaryCurrentText = formatAmount(state.baseValues.mineShafts[shaftId].bufferCapacity);
+      const secondaryNextText = preview.isMaxed ? "MAX" : formatAmount(preview.previewStats.bufferCapacity);
+      const costText = preview.isMaxed ? "MAX" : formatAmount(preview.cost);
+      const buyCountText = preview.isMaxed ? "" : `x${preview.levelsToBuy}`;
+      const managerTimerText = assignedManager === undefined
+        ? automated ? "Automated" : "Manual"
+        : formatManagerTimer(assignedManager);
+      const assignedManagerKey = assignedManager === undefined
+        ? "none"
+        : [
+            assignedManager.id,
+            assignedManager.rank,
+            assignedManager.abilityType,
+            assignedManager.isActive ? 1 : 0,
+            Math.ceil(assignedManager.remainingActiveTime),
+            Math.ceil(assignedManager.remainingCooldownTime)
+          ].join(":");
+      const staticStateKey = [
+        state.activeMineId,
+        shaftState.displayName,
+        preview.currentLevel,
+        preview.isMaxed ? 1 : 0,
+        preview.canAfford ? 1 : 0,
+        preview.levelsToBuy,
+        mainCurrentText,
+        mainNextText,
+        secondaryCurrentText,
+        secondaryNextText,
+        costText,
+        buyCountText,
+        automated ? 1 : 0,
+        managersLocked ? 1 : 0,
+        state.managers.unlockLevel,
+        assignedManagerKey,
+        managerTimerText
+      ].join("|");
 
-      if (automated) {
-        this.setWorldClickTargetEnabled(row.mineClickOutline, row.mineClickChip, row.mineClickZone, false);
-      } else {
-        this.setWorldClickTargetEnabled(row.mineClickOutline, row.mineClickChip, row.mineClickZone, true);
+      if (row.staticStateKey !== staticStateKey) {
+        row.staticStateKey = staticStateKey;
+
+        setTextIfChanged(row.titleText, shaftState.displayName);
+        setTextIfChanged(row.levelText, `Lvl ${preview.currentLevel}`);
+        setTextIfChanged(row.mainCurrentText, mainCurrentText);
+        setTextIfChanged(row.mainNextText, mainNextText);
+        setTextIfChanged(row.secondaryCurrentText, secondaryCurrentText);
+        setTextIfChanged(row.secondaryNextText, secondaryNextText);
+        setTextIfChanged(row.costText, costText);
+        setTextIfChanged(row.buyCountText, buyCountText);
+
+        fitTextToWidth(row.mainCurrentText, 88, [18, 16, 14, 12]);
+        fitTextToWidth(row.mainNextText, 88, [18, 16, 14, 12]);
+        fitTextToWidth(row.secondaryCurrentText, 88, [14, 13, 12, 11]);
+        fitTextToWidth(row.secondaryNextText, 88, [14, 13, 12, 11]);
+        fitTextToWidth(row.costText, 120, [13, 12, 11, 10]);
+        fitTextToWidth(row.buyCountText, 54, [11, 10, 9]);
+
+        this.drawMineShaftPanelFrame(row);
+        this.drawMineShaftManagerSlotFrame(row, automated, managersLocked, assignedManager?.isActive ?? false);
+        this.setMineShaftUpgradeEnabled(row, preview.canAfford && !preview.isMaxed);
+        setVisibleIfChanged(row.managerFrame, true);
+        setVisibleIfChanged(row.managerTitleText, true);
+        setVisibleIfChanged(row.managerSlotZone, true);
+
+        row.managerEmptySlotImage.setVisible(assignedManager === undefined).setAlpha(assignedManager === undefined ? (managersLocked ? 0.52 : 0.9) : 0);
+        row.managerPortraitImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 1);
+        row.managerAbilityImage.setVisible(assignedManager !== undefined).setAlpha(assignedManager === undefined ? 0 : 0.92);
+        row.managerAbilityZone.setVisible(assignedManager !== undefined);
+        setVisibleIfChanged(row.managerRankText, true);
+        setVisibleIfChanged(row.managerStatusText, true);
+        setVisibleIfChanged(row.managerTimerText, true);
+
+        if (assignedManager === undefined) {
+          row.managerEmptySlotImage.setAlpha(managersLocked ? 0.52 : 0.9);
+          setTextIfChanged(row.managerRankText, managersLocked ? "Manager Locked" : "No Manager");
+          row.managerRankText.setColor(managersLocked ? "#c8b39a" : "#f7f1dd");
+          setTextIfChanged(row.managerStatusText, managersLocked ? `Mine Lvl ${state.managers.unlockLevel}` : "Tap to assign");
+          row.managerStatusText.setColor(managersLocked ? "#f08e7f" : "#bdd2d8");
+          setTextIfChanged(row.managerTimerText, managerTimerText);
+          row.managerAbilityZone.disableInteractive();
+        } else {
+          setTextureIfChanged(row.managerPortraitImage, getManagerPortraitKey("mineShaft", assignedManager.rank));
+          setTextureIfChanged(row.managerAbilityImage, getAbilityIconKey(assignedManager.abilityType));
+          row.managerAbilityImage
+            .setAlpha(assignedManager.isActive ? 1 : assignedManager.remainingCooldownTime > 0 ? 0.48 : 0.92)
+            .clearTint();
+          setTextIfChanged(row.managerRankText, formatRank(assignedManager.rank));
+          row.managerRankText.setColor(getRankColor(assignedManager.rank));
+          setTextIfChanged(row.managerStatusText, automated ? "Automated" : "Assigned");
+          row.managerStatusText.setColor(automated ? "#95f0bd" : "#f1d389");
+          setTextIfChanged(row.managerTimerText, managerTimerText);
+          row.managerAbilityZone.setInteractive({ useHandCursor: true });
+        }
+
+        setTextIfChanged(row.mineClickChip, automated ? `${shaftState.displayName} Auto` : shaftState.displayName);
+        this.setWorldClickTargetEnabled(row.mineClickOutline, row.mineClickChip, row.mineClickZone, !automated);
       }
     }
   }
@@ -4074,11 +4234,13 @@ export class MineScene extends Phaser.Scene {
       } else if (state.entities.elevator.state === "idle") {
         this.elevatorCabin.setY(ELEVATOR_TOP_Y);
       }
-      this.elevatorCabin.setTexture(
+      setTextureIfChanged(
+        this.elevatorCabin,
         loadState === "loaded" ? getMineTextureKey(state.activeMineId, "elevator-cabin-loaded") : "elevator-cabin-empty"
       );
     } else {
-      this.elevatorCabin.setTexture(
+      setTextureIfChanged(
+        this.elevatorCabin,
         this.elevatorVisualLoaded ? getMineTextureKey(state.activeMineId, "elevator-cabin-loaded") : "elevator-cabin-empty"
       );
     }
@@ -4108,15 +4270,19 @@ export class MineScene extends Phaser.Scene {
           ? getMineTextureKey(activeMineId, "warehouse-pile-small")
           : getMineTextureKey(activeMineId, "warehouse-pile-full");
 
-    this.warehouseWorker.setTexture(workerTexture);
+    setTextureIfChanged(this.warehouseWorker, workerTexture);
     this.warehouseWorker.setPosition(
       Phaser.Math.Linear(WAREHOUSE_WORKER_HOME_X, WAREHOUSE_WORKER_DROPOFF_X, workerPositionRatio),
       WAREHOUSE_WORKER_Y
     );
-    this.warehouseWorker.setFlipX(workerFacingLeft);
-    this.warehousePile.setTexture(pileTexture);
-    this.warehouseFeedback.setVisible(salesFeedbackVisible).setText(salesFeedbackText);
-    this.commandFeedback.setVisible(commandFeedbackVisible).setText(commandFeedbackText);
+    if (this.warehouseWorker.flipX !== workerFacingLeft) {
+      this.warehouseWorker.setFlipX(workerFacingLeft);
+    }
+    setTextureIfChanged(this.warehousePile, pileTexture);
+    setVisibleIfChanged(this.warehouseFeedback, salesFeedbackVisible);
+    setTextIfChanged(this.warehouseFeedback, salesFeedbackText);
+    setVisibleIfChanged(this.commandFeedback, commandFeedbackVisible);
+    setTextIfChanged(this.commandFeedback, commandFeedbackText);
   }
 
   private applyUiState(state: GameState, events: SimulationEvent[], buyMode: UpgradeBuyMode): void {
@@ -4219,7 +4385,9 @@ export class MineScene extends Phaser.Scene {
 
     this.refreshSurfaceSidebarVisibility();
     this.refreshNavigationButton();
-    this.refreshMapView(state);
+    if (this.mapViewContainer !== undefined) {
+      this.refreshMapView(state);
+    }
     this.activeBuyMode = buyMode;
     this.uiInitialized = true;
   }
@@ -4228,15 +4396,30 @@ export class MineScene extends Phaser.Scene {
     const visibleDepthGroupCount = this.getVisibleDepthGroupCount(state);
 
     for (const section of this.depthSections) {
-      section.background.setVisible(section.depthGroup <= visibleDepthGroupCount);
+      setVisibleIfChanged(
+        section.background,
+        section.depthGroup <= visibleDepthGroupCount && this.isDepthGroupNearViewport(section.depthGroup)
+      );
     }
+  }
+
+  private isDepthGroupNearViewport(depthGroup: number): boolean {
+    const preloadMargin = 160;
+    const viewportTop = this.cameras.main.scrollY - preloadMargin;
+    const viewportBottom = this.cameras.main.scrollY + GAME_HEIGHT + preloadMargin;
+
+    return this.getDepthGroupBottomY(depthGroup) >= viewportTop && this.getDepthGroupTopY(depthGroup) <= viewportBottom;
   }
 
   private refreshDepthBlockades(state: GameState): void {
     for (const ui of this.depthBlockades) {
       const blockade = state.blockades[ui.blockadeId];
       const nextDepthGroup = Math.floor((ui.unlocksShaftId - 1) / SHAFTS_PER_DEPTH_GROUP) + 1;
-      const visible = blockade !== undefined && !blockade.isRemoved && this.isDepthGroupVisible(state, nextDepthGroup);
+      const visible =
+        blockade !== undefined &&
+        !blockade.isRemoved &&
+        this.isDepthGroupVisible(state, nextDepthGroup) &&
+        this.isBlockadeNearViewport(ui.afterShaftId);
 
       ui.image.setVisible(visible);
       ui.panel.setVisible(visible);
@@ -4310,6 +4493,15 @@ export class MineScene extends Phaser.Scene {
       fitTextToWidth(ui.hintText, DEPTH_BLOCKADE_PANEL_WIDTH - 36, [12, 11, 10]);
       this.setWorldButtonEnabled(ui.buttonImage, ui.buttonText, ui.buttonZone, enabled, true);
     }
+  }
+
+  private isBlockadeNearViewport(afterShaftId: number): boolean {
+    const blockadeY = this.getBlockadeY(afterShaftId);
+    const preloadMargin = DEPTH_BLOCKADE_IMAGE_HEIGHT;
+    const viewportTop = this.cameras.main.scrollY - preloadMargin;
+    const viewportBottom = this.cameras.main.scrollY + GAME_HEIGHT + preloadMargin;
+
+    return blockadeY >= viewportTop && blockadeY <= viewportBottom;
   }
 
   private refreshManagerSlots(state: GameState): void {
@@ -5312,56 +5504,16 @@ export class MineScene extends Phaser.Scene {
   }
 
   private setMineShaftRowMode(row: MineShaftRowUi, mode: "unlocked" | "locked" | "hidden"): void {
+    if (row.mode === mode) {
+      return;
+    }
+
+    row.mode = mode;
     const isUnlocked = mode === "unlocked";
     const isLocked = mode === "locked";
-    const unlockedObjects = [
-      row.backWall,
-      row.floor,
-      row.supports,
-      row.pickupBox,
-      row.oreDeposit,
-      row.miner,
-      row.storageText,
-      row.routeText,
-      row.panelFrame,
-      row.levelBadge,
-      row.titleText,
-      row.levelText,
-      row.mainLabelText,
-      row.mainCurrentText,
-      row.mainNextText,
-      row.secondaryLabelText,
-      row.secondaryCurrentText,
-      row.secondaryNextText,
-      row.costText,
-      row.buyCountText,
-      row.upgradeButtonImage,
-      row.upgradeButtonText,
-      row.upgradeButtonZone,
-      ...row.decorations,
-      row.managerFrame,
-      row.managerTitleText,
-      row.managerEmptySlotImage,
-      row.managerPortraitImage,
-      row.managerRankText,
-      row.managerStatusText,
-      row.managerTimerText,
-      row.managerAbilityImage,
-      row.managerAbilityZone,
-      row.managerSlotZone,
-      row.mineClickZone
-    ];
-    const lockedObjects = [
-      row.lockedPlaceholderFrame,
-      row.lockedTitleText,
-      row.lockedHintText,
-      row.unlockButtonImage,
-      row.unlockButtonText,
-      row.unlockButtonZone
-    ];
 
-    unlockedObjects.forEach((object) => object.setVisible(isUnlocked));
-    lockedObjects.forEach((object) => object.setVisible(isLocked));
+    row.unlockedObjects.forEach((object) => setVisibleIfChanged(object, isUnlocked));
+    row.lockedObjects.forEach((object) => setVisibleIfChanged(object, isLocked));
     row.mineClickOutline.setStrokeStyle(2, 0xf1c96b, 0.14);
     row.mineClickChip.setAlpha(0.74);
 
@@ -5395,6 +5547,11 @@ export class MineScene extends Phaser.Scene {
   }
 
   private drawMineShaftPanelFrame(row: MineShaftRowUi): void {
+    if (row.panelFrameDrawn) {
+      return;
+    }
+
+    row.panelFrameDrawn = true;
     const top = this.getMineShaftPanelTop(row.shaftId);
     const x = UPGRADE_COLUMN_X;
     const width = UPGRADE_CARD_WIDTH;
@@ -5422,6 +5579,13 @@ export class MineScene extends Phaser.Scene {
     locked: boolean,
     activeAbility: boolean
   ): void {
+    const cacheKey = `${automated ? 1 : 0}|${locked ? 1 : 0}|${activeAbility ? 1 : 0}`;
+
+    if (row.managerFrameCacheKey === cacheKey) {
+      return;
+    }
+
+    row.managerFrameCacheKey = cacheKey;
     const fill = locked ? 0x1d2430 : automated ? 0x17382d : 0x273542;
     const innerFill = activeAbility ? 0x62bf7b : automated ? 0x2a6b50 : 0x5c7c87;
     const line = activeAbility ? 0xb5ff8d : automated ? 0x95f0bd : 0xf1c96b;
@@ -5437,6 +5601,13 @@ export class MineScene extends Phaser.Scene {
   }
 
   private drawLockedShaftPlaceholder(row: MineShaftRowUi, canUnlock: boolean, previousUnlocked: boolean): void {
+    const cacheKey = `${canUnlock ? 1 : 0}|${previousUnlocked ? 1 : 0}`;
+
+    if (row.lockedPlaceholderCacheKey === cacheKey) {
+      return;
+    }
+
+    row.lockedPlaceholderCacheKey = cacheKey;
     const top = this.getShaftY(MINE_SHAFT_BACK_WALL_Y, row.shaftId) - LOCKED_SHAFT_PLACEHOLDER_HEIGHT / 2;
     const line = previousUnlocked ? (canUnlock ? 0x95f0bd : 0xf1c96b) : 0xa66d59;
     const fill = previousUnlocked ? 0x213440 : 0x33262a;
@@ -5512,6 +5683,12 @@ export class MineScene extends Phaser.Scene {
 
   private refreshElevatorShaftVisual(state: GameState): void {
     const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
+
+    if (deepestUnlockedShaftId === this.renderedElevatorShaftId) {
+      return;
+    }
+
+    this.renderedElevatorShaftId = deepestUnlockedShaftId;
     const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId);
     const middleSegmentHeight = this.getElevatorShaftMiddleSegmentHeight(deepestUnlockedShaftId);
 
@@ -5536,6 +5713,26 @@ export class MineScene extends Phaser.Scene {
       132,
       572 + this.getShaftOffset(deepestUnlockedShaftId)
     );
+  }
+
+  private refreshElevatorShaftVisibility(state: GameState): void {
+    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
+    const middleSegmentCount = this.getElevatorMiddleSegmentCount(deepestUnlockedShaftId);
+
+    setVisibleIfChanged(this.elevatorShaftTop, this.isImageNearViewport(this.elevatorShaftTop));
+    setVisibleIfChanged(this.elevatorShaftBottom, this.isImageNearViewport(this.elevatorShaftBottom));
+
+    this.elevatorShaftMiddleSegments.forEach((segment, index) => {
+      setVisibleIfChanged(segment, index < middleSegmentCount && this.isImageNearViewport(segment));
+    });
+  }
+
+  private isImageNearViewport(image: Phaser.GameObjects.Image, preloadMargin = 120): boolean {
+    const halfHeight = image.displayHeight / 2;
+    const viewportTop = this.cameras.main.scrollY - preloadMargin;
+    const viewportBottom = this.cameras.main.scrollY + GAME_HEIGHT + preloadMargin;
+
+    return image.y + halfHeight >= viewportTop && image.y - halfHeight <= viewportBottom;
   }
 
   private processElevatorRouteEvents(state: GameState, events: SimulationEvent[]): void {
@@ -6115,6 +6312,14 @@ function getAssignedManagerForArea(state: GameState, area: ManagerArea): Manager
   return state.managers.ownedManagers.find((manager) => manager.id === assignedManagerId && manager.isOwned);
 }
 
+function getMineSpecificAssetEntries(mineId: MineId): Array<[string, string]> {
+  if (mineId === DEFAULT_ACTIVE_MINE_ID) {
+    return [];
+  }
+
+  return Object.entries(mineSpecificAssetManifest).filter(([key]) => key.endsWith(`-${mineId}`));
+}
+
 function getAssignedManagerForShaft(state: GameState, shaftId: number): ManagerState | undefined {
   const assignedManagerId = state.managers.assignedManagerIdsByShaft[shaftId];
 
@@ -6227,6 +6432,36 @@ function formatManagerTimer(manager: ManagerState): string {
   }
 
   return "Ability ready";
+}
+
+function setTextIfChanged(text: Phaser.GameObjects.Text, value: string): boolean {
+  if (text.text === value) {
+    return false;
+  }
+
+  text.setText(value);
+  return true;
+}
+
+function setTextureIfChanged(image: Phaser.GameObjects.Image, key: string): boolean {
+  if (image.texture.key === key) {
+    return false;
+  }
+
+  image.setTexture(key);
+  return true;
+}
+
+function setVisibleIfChanged(
+  object: Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible,
+  visible: boolean
+): boolean {
+  if (object.visible === visible) {
+    return false;
+  }
+
+  object.setVisible(visible);
+  return true;
 }
 
 function fitTextToWidth(text: Phaser.GameObjects.Text, maxWidth: number, fontSizes: number[]): void {
