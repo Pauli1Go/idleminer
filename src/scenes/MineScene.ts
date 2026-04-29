@@ -1072,8 +1072,9 @@ export class MineScene extends Phaser.Scene {
     this.applyFrame(initialFrame, 0);
     this.advanceElevatorAnimation(0);
 
-    if (this.viewModel.offlineProgressResult !== null && this.viewModel.offlineProgressResult.offlineSeconds >= 60) {
-      this.showOfflineProgressModal(this.viewModel.offlineProgressResult);
+    if (this.viewModel.offlineProgressResult !== null) {
+      this.handleActiveMineOfflineCashAfterProgress();
+      this.viewModel.flushSave();
     }
   }
 
@@ -1083,140 +1084,42 @@ export class MineScene extends Phaser.Scene {
     this.advanceElevatorAnimation(delta);
   }
 
-  private showOfflineProgressModal(result: import("../core/index.ts").OfflineProgressResult): void {
-    const overlay = this.pinUi(
-      this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7)
-        .setDepth(900)
-    );
+  private handleActiveMineOfflineCashAfterProgress(): void {
+    const mineId = this.getActiveMineId();
+    const mine = this.latestState?.mines[mineId];
 
-    const panelWidth = 500;
-    const panelHeight = 300;
-    const panelX = GAME_WIDTH / 2 - panelWidth / 2;
-    const panelY = GAME_HEIGHT / 2 - panelHeight / 2;
+    if (mine === undefined || !mine.isUnlocked || mine.pendingOfflineCash <= Number.EPSILON) {
+      return;
+    }
 
-    const panel = this.pinUi(this.add.graphics().setDepth(901));
-    panel.fillStyle(0x17212a, 0.95);
-    panel.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
-    panel.lineStyle(2, 0xf1c96b, 1);
-    panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    if (mine.pendingOfflineSeconds < 60) {
+      this.collectShortActiveMineOfflineCash();
+      return;
+    }
 
-    const titleText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 40, "Offline Progress", {
-      fontFamily: UI_FONT_FAMILY,
-      fontSize: "28px",
-      fontStyle: "bold",
-      color: "#f6e8bb",
-    }).setOrigin(0.5).setDepth(902));
-
-    const formatTime = (seconds: number) => {
-      const d = Math.floor(seconds / (3600 * 24));
-      const h = Math.floor(seconds % (3600 * 24) / 3600);
-      const m = Math.floor(seconds % 3600 / 60);
-      return `${d > 0 ? d + 'd ' : ''}${h}h ${m}m`;
-    };
-
-    const timeText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 100, `Offline time: ${formatTime(result.offlineSeconds)}`, {
-      fontFamily: UI_FONT_FAMILY,
-      fontSize: "20px",
-      color: "#dcecf1",
-    }).setOrigin(0.5).setDepth(902));
-
-    const rowIconX = GAME_WIDTH / 2 - 88;
-    const rowTextX = GAME_WIDTH / 2 - 54;
-    const rowTextWidth = panelX + panelWidth - 52 - rowTextX;
-    const coinIcon = this.pinUi(
-      this.add.image(rowIconX, panelY + 150, "coin-icon").setDisplaySize(24, 24).setDepth(902)
-    );
-    const moneyText = this.pinUi(this.add.text(rowTextX, panelY + 150, `+${formatCurrency(result.moneyEarned)}`, {
-      fontFamily: UI_FONT_FAMILY,
-      fontSize: "24px",
-      fontStyle: "bold",
-      color: "#4ee669",
-    }).setOrigin(0, 0.5).setDepth(902));
-    fitTextToWidth(moneyText, rowTextWidth, [24, 22, 20, 18, 16]);
-
-    const oreIcon = this.pinUi(
-      this.add.image(rowIconX, panelY + 190, getMapOreIconKey(this.getActiveMineId())).setDisplaySize(24, 24).setDepth(902)
-    );
-    const oreText = this.pinUi(this.add.text(rowTextX, panelY + 190, `${formatLargeNumber(result.oreSold)} ore sold`, {
-      fontFamily: UI_FONT_FAMILY,
-      fontSize: "20px",
-      color: "#e6c94e",
-    }).setOrigin(0, 0.5).setDepth(902));
-    fitTextToWidth(oreText, rowTextWidth, [20, 18, 16, 14]);
-
-    const buttonWidth = 160;
-    const buttonHeight = 40;
-    const buttonX = GAME_WIDTH / 2;
-    const buttonY = panelY + panelHeight - 40;
-
-    const buttonBg = this.pinUi(this.add.graphics().setDepth(901));
-    buttonBg.fillStyle(0x386641, 1);
-    buttonBg.fillRoundedRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight, 8);
-
-    const buttonText = this.pinUi(this.add.text(buttonX, buttonY, "Collect", {
-      fontFamily: UI_FONT_FAMILY,
-      fontSize: "20px",
-      fontStyle: "bold",
-      color: "#ffffff"
-    }).setOrigin(0.5).setDepth(902));
-
-    const buttonZone = this.pinUi(
-      this.add.zone(buttonX, buttonY, buttonWidth, buttonHeight)
-        .setDepth(903)
-    );
-
-    const objects = [overlay, panel, titleText, timeText, coinIcon, moneyText, oreIcon, oreText, buttonBg, buttonText, buttonZone];
-    let isClosed = false;
-    const collectAndClose = () => {
-      if (isClosed) {
-        return;
-      }
-
-      isClosed = true;
-      for (const mineId of this.getCollectableOfflineMineIds()) {
-        this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
-      }
-      this.viewModel.flushSave();
-      objects.forEach((obj) => obj.destroy());
-    };
-    const isInsidePanel = (pointer: Phaser.Input.Pointer) =>
-      pointer.x >= panelX &&
-      pointer.x <= panelX + panelWidth &&
-      pointer.y >= panelY &&
-      pointer.y <= panelY + panelHeight;
-
-    this.time.delayedCall(150, () => {
-      if (overlay.active) {
-        overlay.setInteractive();
-      }
-
-      if (buttonZone.active) {
-        buttonZone.setInteractive({ useHandCursor: true });
-      }
-    });
-
-    overlay.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (!isInsidePanel(pointer)) {
-        collectAndClose();
-      }
-    });
-
-    buttonZone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-      event.stopPropagation();
-      collectAndClose();
+    this.showMineOfflineCashModal(mineId, {
+      offlineSeconds: mine.pendingOfflineSeconds,
+      moneyEarned: mine.pendingOfflineCash,
+      oreSold: mine.pendingOfflineOreSold
     });
   }
 
-  private getCollectableOfflineMineIds(): MineId[] {
-    const state = this.latestState;
+  private collectShortActiveMineOfflineCash(): boolean {
+    const mineId = this.getActiveMineId();
+    const mine = this.latestState?.mines[mineId];
 
-    if (state === undefined) {
-      return [];
+    if (
+      mine === undefined ||
+      !mine.isUnlocked ||
+      mine.pendingOfflineCash <= Number.EPSILON ||
+      mine.pendingOfflineSeconds >= 60
+    ) {
+      return false;
     }
 
-    return Object.values(state.mines)
-      .filter((mine) => mine.isUnlocked && mine.pendingOfflineCash > Number.EPSILON)
-      .map((mine) => mine.mineId);
+    this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
+    this.viewModel.flushSave();
+    return true;
   }
 
   private handleShutdown(): void {
@@ -1234,9 +1137,9 @@ export class MineScene extends Phaser.Scene {
     } else {
       // We became visible again, calculate offline progress
       const result = this.viewModel.processOfflineProgress();
-      if (result !== null && result.offlineSeconds >= 60) {
+      if (result !== null) {
         this.applyFrame(this.viewModel.getInitialFrame(), this.time.now);
-        this.showOfflineProgressModal(result);
+        this.handleActiveMineOfflineCashAfterProgress();
       }
     }
   };
@@ -2455,6 +2358,7 @@ export class MineScene extends Phaser.Scene {
     this.mapMineAreaUi = MAP_MINE_AREAS.map((area) => this.createMapMineArea(container, area));
     this.createMapDetailPanel(container);
     this.createMapCurrencyPanels(container);
+    this.collectShortActiveMineOfflineCash();
     this.refreshMapView(this.latestState);
   }
 
