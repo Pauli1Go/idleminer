@@ -2573,7 +2573,7 @@ export class MineScene extends Phaser.Scene {
       const prestigeStars = "★".repeat(mine.prestigeLevel);
       row.nameText.setText(prestigeStars.length > 0 ? `${mine.displayName}  ${prestigeStars}` : mine.displayName);
       fitTextToWidth(row.nameText, 190, [13, 12, 11, 10]);
-      row.productionText.setText(mine.isUnlocked ? `Prod ${formatRate(getMapMineProductionRate(mine))}` : "Production locked");
+      row.productionText.setText(mine.isUnlocked ? `Prod ${formatRate(getMapMineProductionRate(mine, !isActive))}` : "Production locked");
       fitTextToWidth(row.productionText, 200, [10, 9, 8]);
       row.prestigeText.setText(
         nextPrestige === undefined
@@ -5702,19 +5702,20 @@ function getMapOreIconKey(mineId: MineId): string {
   return getMineTextureKey(mineId, "ore-icon");
 }
 
-function getMapMineProductionRate(mine: GameState["mines"][MineId]): number {
+function getMapMineProductionRate(mine: GameState["mines"][MineId], useBaseValues = false): number {
+  const values = useBaseValues ? mine.baseValues : mine.currentValues;
   const mineRate = Object.values(mine.entities.mineShafts).reduce((sum, shaft) => {
     if (!shaft.isUnlocked || !mine.managers.automationEnabledByShaft[shaft.shaftId]) {
       return sum;
     }
 
-    return sum + mine.currentValues.mineShafts[shaft.shaftId].throughputPerSecond;
+    return sum + values.mineShafts[shaft.shaftId].throughputPerSecond;
   }, 0);
   const elevatorRate = mine.managers.automationEnabledByArea.elevator
-    ? mine.currentValues.elevator.throughputPerSecond
+    ? values.elevator.throughputPerSecond
     : 0;
   const warehouseRate = mine.managers.automationEnabledByArea.warehouse
-    ? mine.currentValues.warehouse.throughputPerSecond
+    ? values.warehouse.throughputPerSecond
     : 0;
 
   return Math.min(mineRate, elevatorRate, warehouseRate);
