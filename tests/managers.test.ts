@@ -351,6 +351,36 @@ test("Cooldown blocks reactivation", () => {
   assert.equal((failure as Extract<(typeof events)[number], { type: "actionFailed" }>).reason, "ability_on_cooldown");
 });
 
+test("Inactive mine manager abilities and cooldowns continue ticking", () => {
+  const simulation = createSimulation(
+    createUnlockedBalance({ startingMoney: 1e20, activeDurationSeconds: 0.2, cooldownSeconds: 0.4 })
+  );
+
+  simulation.unlockMine("gold");
+  simulation.setActiveMine("gold");
+  simulation.purchaseManager("mineShaft");
+  const goldManagerId = getManagerIds(simulation.getState())[0];
+
+  simulation.assignManager(goldManagerId, "mineShaft", 1);
+  simulation.activateManagerAbility(goldManagerId);
+  simulation.setActiveMine("coal");
+
+  const expireEvents = simulation.update(0.3);
+  const goldManagerAfterExpire = simulation.getState().mines.gold.managers.ownedManagers.find((manager) => manager.id === goldManagerId);
+
+  assert.ok(goldManagerAfterExpire);
+  assert.equal(goldManagerAfterExpire.isActive, false);
+  assert.equal(goldManagerAfterExpire.remainingActiveTime, 0);
+  assert.equal(goldManagerAfterExpire.remainingCooldownTime > 0, true);
+  assert.equal(expireEvents.some((event) => event.type === "managerAbilityExpired" && event.mineId === "gold"), false);
+
+  simulation.update(0.4);
+  const goldManagerAfterCooldown = simulation.getState().mines.gold.managers.ownedManagers.find((manager) => manager.id === goldManagerId);
+
+  assert.ok(goldManagerAfterCooldown);
+  assert.equal(goldManagerAfterCooldown.remainingCooldownTime, 0);
+});
+
 test("Activating all manager abilities starts every ready assigned manager", () => {
   const simulation = createSimulation(createUnlockedBalance({ startingMoney: 5000 }));
 

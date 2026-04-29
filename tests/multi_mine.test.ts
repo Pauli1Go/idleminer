@@ -380,6 +380,22 @@ test("inaktive Offline-Produktion ignoriert aktive Manager-Boosts", () => {
   assert.equal(simulation.getState().mines.gold.pendingOfflineCash, expectedCash);
 });
 
+test("inaktive Manager-Timer laufen nach geschlossenem Spiel weiter", () => {
+  const saved = createSaveWithBoostedAutomatedInactiveGold();
+  const simulation = new MineSimulation(cloneBalance(), { fixedStepSeconds: 10 });
+
+  simulation.importSaveGame(saved, saved.savedAt + 700_000);
+  const gold = simulation.getState().mines.gold;
+
+  assert.equal(gold.managers.ownedManagers.length > 0, true);
+  assert.equal(gold.managers.ownedManagers.every((manager) => !manager.isActive), true);
+  assert.equal(gold.managers.ownedManagers.every((manager) => manager.remainingActiveTime === 0), true);
+  assert.equal(gold.managers.ownedManagers.every((manager) => manager.remainingCooldownTime > 0), true);
+  assert.equal(gold.currentValues.mineShaft.throughputPerSecond, gold.baseValues.mineShaft.throughputPerSecond);
+  assert.equal(gold.currentValues.elevator.throughputPerSecond, gold.baseValues.elevator.throughputPerSecond);
+  assert.equal(gold.currentValues.warehouse.throughputPerSecond, gold.baseValues.warehouse.throughputPerSecond);
+});
+
 test("Mine-Wechsel sammelt pending Offline-Cash nicht automatisch ein", () => {
   const simulation = createSimulationWithAutomatedInactiveGold();
   simulation.update(10);

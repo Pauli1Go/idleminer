@@ -1833,7 +1833,7 @@ export class MineSimulation {
     this.elevator.update(deltaSeconds, this.mineShafts, this.warehouse, emit);
     this.runAutomationForElevator(events);
 
-    this.tickManagerTimers(deltaSeconds, events);
+    this.tickManagerTimersForAllMines(deltaSeconds, events);
     this.syncMineTotals();
   }
 
@@ -2548,7 +2548,23 @@ export class MineSimulation {
     };
   }
 
-  private tickManagerTimers(deltaSeconds: number, events: SimulationEvent[]): void {
+  private tickManagerTimersForAllMines(deltaSeconds: number, activeMineEvents?: SimulationEvent[]): void {
+    const activeMineId = this.activeMineId;
+
+    for (const definition of this.mineDefinitions) {
+      const mine = this.minesById[definition.mineId];
+
+      if (mine === undefined || !mine.isUnlocked) {
+        continue;
+      }
+
+      this.withMineContext(mine.mineId, () => {
+        this.tickManagerTimers(deltaSeconds, mine.mineId === activeMineId ? activeMineEvents : undefined);
+      });
+    }
+  }
+
+  private tickManagerTimers(deltaSeconds: number, events?: SimulationEvent[]): void {
     const changedGlobalAreas = new Set<Exclude<ManagerArea, "mineShaft">>();
     const changedMineShafts = new Set<number>();
 
@@ -2568,30 +2584,36 @@ export class MineSimulation {
           const overshoot = Math.max(0, deltaSeconds - previousActiveTime);
           manager.remainingCooldownTime = roundForState(Math.max(0, manager.cooldownSeconds - overshoot));
 
-          this.emit(
-            {
-              type: "managerAbilityExpired",
-              manager: normalizeManagerState(manager)
-            },
-            events
-          );
+          if (events !== undefined) {
+            this.emit(
+              {
+                type: "managerAbilityExpired",
+                manager: normalizeManagerState(manager)
+              },
+              events
+            );
+          }
 
           if (manager.remainingCooldownTime > EPSILON) {
-            this.emit(
-              {
-                type: "managerCooldownStarted",
-                manager: normalizeManagerState(manager)
-              },
-              events
-            );
+            if (events !== undefined) {
+              this.emit(
+                {
+                  type: "managerCooldownStarted",
+                  manager: normalizeManagerState(manager)
+                },
+                events
+              );
+            }
           } else {
-            this.emit(
-              {
-                type: "managerCooldownFinished",
-                manager: normalizeManagerState(manager)
-              },
-              events
-            );
+            if (events !== undefined) {
+              this.emit(
+                {
+                  type: "managerCooldownFinished",
+                  manager: normalizeManagerState(manager)
+                },
+                events
+              );
+            }
           }
 
           if (manager.area === "mineShaft" && manager.assignedShaftId !== null) {
@@ -2605,13 +2627,15 @@ export class MineSimulation {
 
         if (manager.remainingCooldownTime <= EPSILON) {
           manager.remainingCooldownTime = 0;
-          this.emit(
-            {
-              type: "managerCooldownFinished",
-              manager: normalizeManagerState(manager)
-            },
-            events
-          );
+          if (events !== undefined) {
+            this.emit(
+              {
+                type: "managerCooldownFinished",
+                manager: normalizeManagerState(manager)
+              },
+              events
+            );
+          }
         }
       }
     }
@@ -2720,7 +2744,7 @@ export class MineSimulation {
       totalOreSold = roundForState(totalOreSold + result.oreSold);
     }
 
-    this.tickManagerTimers(offlineSeconds, []);
+    this.tickManagerTimersForAllMines(offlineSeconds);
     this.updateBlockades(offlineSeconds, []);
 
     if (totalMoneyEarned <= EPSILON) {
