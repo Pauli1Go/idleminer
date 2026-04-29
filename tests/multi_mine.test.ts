@@ -413,14 +413,25 @@ test("Mine-Wechsel sammelt pending Offline-Cash nicht automatisch ein", () => {
 test("Offline-Cash einer Mine kann eingesammelt und gespeichert werden", () => {
   const simulation = createSimulationWithAutomatedInactiveGold();
   simulation.update(10);
-  const pendingCash = simulation.getState().mines.gold.pendingOfflineCash;
-  const cashBeforeCollect = simulation.getState().cash;
+  const beforeCollect = simulation.getState();
+  const pendingCash = beforeCollect.mines.gold.pendingOfflineCash;
+  const pendingOreSold = beforeCollect.mines.gold.pendingOfflineOreSold;
+  const cashBeforeCollect = beforeCollect.cash;
   const collectEvents = simulation.collectMineOfflineCash("gold");
   const afterCollect = simulation.getState();
 
   assert.equal(collectEvents.some((event) => event.type === "mineOfflineCashCollected" && event.mineId === "gold"), true);
   assert.equal(afterCollect.mines.gold.pendingOfflineCash, 0);
   assert.equal(afterCollect.cash, cashBeforeCollect + pendingCash);
+  assert.equal(afterCollect.resources.totals.moneyEarned, roundForState(beforeCollect.resources.totals.moneyEarned + pendingCash));
+  assert.equal(afterCollect.resources.totals.producedOre, roundForState(beforeCollect.resources.totals.producedOre + pendingOreSold));
+  assert.equal(afterCollect.resources.totals.collectedByElevatorOre, roundForState(beforeCollect.resources.totals.collectedByElevatorOre + pendingOreSold));
+  assert.equal(afterCollect.resources.totals.transportedOre, roundForState(beforeCollect.resources.totals.transportedOre + pendingOreSold));
+  assert.equal(afterCollect.resources.totals.soldOre, roundForState(beforeCollect.resources.totals.soldOre + pendingOreSold));
+
+  simulation.setActiveMine("gold");
+  simulation.update(0.1);
+  assert.equal(simulation.getState().resources.totals.soldOre >= afterCollect.resources.totals.soldOre, true);
 
   simulation.update(10);
   const saved = simulation.exportSaveGame();

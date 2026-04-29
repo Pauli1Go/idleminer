@@ -891,10 +891,11 @@ export class MineSimulation {
     }
 
     const previousMoney = this.money;
+    const collectedOreSold = roundForState(mine.pendingOfflineOreSold);
     mine.pendingOfflineCash = 0;
     mine.pendingOfflineSeconds = 0;
     mine.pendingOfflineOreSold = 0;
-    mine.totals.moneyEarned = roundForState(mine.totals.moneyEarned + collectedCash);
+    this.addOfflineProductionToTotals(mine, collectedOreSold, collectedCash);
     this.money = roundForState(this.money + collectedCash);
 
     this.emit(
@@ -908,6 +909,45 @@ export class MineSimulation {
     );
     this.emitMoneyChanged(previousMoney, events);
     return events;
+  }
+
+  private addOfflineProductionToTotals(mine: MineRuntime, oreSold: number, moneyEarned: number): void {
+    const inferredOreSold = this.balance.economy.sellPricePerOre > EPSILON
+      ? moneyEarned / this.balance.economy.sellPricePerOre
+      : 0;
+    const offlineOreSold = roundForState(Math.max(0, oreSold > EPSILON ? oreSold : inferredOreSold));
+
+    if (offlineOreSold > EPSILON) {
+      const automatedShafts = mine.mineShafts.filter((shaft) => shaft.isUnlocked && shaft.assignedManagerId !== null);
+      const productionShafts = automatedShafts.length > 0
+        ? automatedShafts
+        : mine.mineShafts.filter((shaft) => shaft.isUnlocked);
+      const totalThroughput = productionShafts.reduce((sum, shaft) => {
+        const baseStats = mine.baseMineShaftStatsByShaftId[shaft.shaftId];
+        return sum + Math.max(0, baseStats?.throughputPerSecond ?? shaft.stats.throughputPerSecond);
+      }, 0);
+      let allocatedOre = 0;
+
+      for (let index = 0; index < productionShafts.length; index += 1) {
+        const shaft = productionShafts[index];
+        const baseStats = mine.baseMineShaftStatsByShaftId[shaft.shaftId];
+        const throughput = Math.max(0, baseStats?.throughputPerSecond ?? shaft.stats.throughputPerSecond);
+        const producedOre =
+          index === productionShafts.length - 1 || totalThroughput <= EPSILON
+            ? roundForState(offlineOreSold - allocatedOre)
+            : roundForState(offlineOreSold * (throughput / totalThroughput));
+
+        shaft.totalProducedOre = roundForState(shaft.totalProducedOre + producedOre);
+        allocatedOre = roundForState(allocatedOre + producedOre);
+      }
+
+      mine.elevator.totalCollectedOre = roundForState(mine.elevator.totalCollectedOre + offlineOreSold);
+      mine.elevator.totalTransportedOre = roundForState(mine.elevator.totalTransportedOre + offlineOreSold);
+      mine.warehouse.totalSoldOre = roundForState(mine.warehouse.totalSoldOre + offlineOreSold);
+      this.syncMineTotals(mine);
+    }
+
+    mine.totals.moneyEarned = roundForState(mine.totals.moneyEarned + moneyEarned);
   }
 
   manualMineAction(shaftId = 1, mineId: MineId = this.activeMineId): SimulationEvent[] {
