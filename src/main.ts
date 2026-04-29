@@ -5,6 +5,7 @@ import { createLocalStorageSaveGameRepository, type BalanceConfig, type SaveGame
 import { BootScene } from "./scenes/BootScene.ts";
 import { LoadingScene } from "./scenes/LoadingScene.ts";
 import { MineScene } from "./scenes/MineScene.ts";
+import { registerAssetCache } from "./browserCache.ts";
 import "./style.css";
 
 function createSaveRepository(): SaveGameRepository | undefined {
@@ -40,6 +41,10 @@ const gameConfig: Phaser.Types.Core.GameConfig = {
 };
 
 const game = new Phaser.Game(gameConfig);
+
+void registerAssetCache().catch((error: unknown) => {
+  console.warn("Asset cache registration failed.", error);
+});
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
