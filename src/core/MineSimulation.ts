@@ -2645,17 +2645,21 @@ export class MineSimulation {
       const assignedByShaft = this.getAssignedManagerIdsByShaft();
       const activeMineThroughput = this.mineShafts
         .filter((shaft) => shaft.isUnlocked && assignedByShaft[shaft.shaftId] !== null)
-        .reduce((sum, shaft) => sum + shaft.stats.throughputPerSecond, 0);
+        .reduce((sum, shaft) => {
+          const baseStats = this.baseMineShaftStatsByShaftId[shaft.shaftId];
+          return sum + (baseStats?.throughputPerSecond ?? shaft.stats.throughputPerSecond);
+        }, 0);
 
       const assignedArea = this.getAssignedManagerIdsByArea();
       if (activeMineThroughput <= EPSILON || assignedArea.elevator === null || assignedArea.warehouse === null) {
         return { moneyEarned: 0, oreSold: 0 };
       }
 
+      // Offline production is automation-gated by managers, but temporary manager abilities do not boost it.
       const bottleneckThroughput = Math.min(
         activeMineThroughput,
-        this.elevator.stats.throughputPerSecond,
-        this.warehouse.stats.throughputPerSecond
+        this.baseElevatorStats.throughputPerSecond,
+        this.baseWarehouseStats.throughputPerSecond
       );
       const oreSold = roundForState(bottleneckThroughput * offlineSeconds * (1 / this.balance.economy.offlineEarningsDivisor));
       const moneyEarned = roundForState(oreSold * this.balance.economy.sellPricePerOre);

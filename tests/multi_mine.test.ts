@@ -7,7 +7,10 @@ import test from "node:test";
 import {
   MINE_DEFINITIONS,
   MineSimulation,
-  type BalanceConfig
+  roundForState,
+  type BalanceConfig,
+  type MineStateSnapshot,
+  type SaveGameRecord
 } from "../src/core/index.ts";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -59,6 +62,52 @@ function createSimulationWithAutomatedInactiveGold(): MineSimulation {
 
   simulation.setActiveMine("coal");
   return simulation;
+}
+
+function createSaveWithBoostedAutomatedInactiveGold(savedAt = 1000): SaveGameRecord {
+  const simulation = createSimulationWithAutomatedInactiveGold();
+  const save = simulation.exportSaveGame(savedAt);
+  const gold = save.state.mines.find((mine) => mine.mineId === "gold");
+
+  assert.ok(gold, "Missing gold mine in save");
+
+  const boostedAbilityByArea = {
+    mineShaft: "miningSpeedBoost",
+    elevator: "movementSpeedBoost",
+    warehouse: "loadingSpeedBoost"
+  } as const;
+
+  for (const manager of gold.managers.ownedManagers) {
+    manager.rank = "executive";
+    manager.abilityType = boostedAbilityByArea[manager.area];
+    manager.isActive = true;
+    manager.remainingActiveTime = 600;
+    manager.remainingCooldownTime = 0;
+  }
+
+  return save;
+}
+
+function calculateExpectedOfflineCashFromBaseValues(
+  mine: MineStateSnapshot,
+  offlineSeconds: number,
+  balance: BalanceConfig
+): number {
+  const mineThroughput = Object.values(mine.entities.mineShafts).reduce((sum, shaft) => {
+    if (!shaft.isUnlocked || !mine.managers.automationEnabledByShaft[shaft.shaftId]) {
+      return sum;
+    }
+
+    return sum + mine.baseValues.mineShafts[shaft.shaftId].throughputPerSecond;
+  }, 0);
+  const bottleneckThroughput = Math.min(
+    mineThroughput,
+    mine.baseValues.elevator.throughputPerSecond,
+    mine.baseValues.warehouse.throughputPerSecond
+  );
+  const oreSold = roundForState(bottleneckThroughput * offlineSeconds * (1 / balance.economy.offlineEarningsDivisor));
+
+  return roundForState(oreSold * balance.economy.sellPricePerOre);
 }
 
 function createLegacySingleMineSave() {
@@ -312,6 +361,23 @@ test("inaktive freigeschaltete Minen sammeln Offline-Cash fuer die Map", () => {
   const state = simulation.getState();
   assert.equal(state.cash, cashBefore);
   assert.equal(state.mines.gold.pendingOfflineCash > 0, true);
+});
+
+test("inaktive Offline-Produktion ignoriert aktive Manager-Boosts", () => {
+  const saved = createSaveWithBoostedAutomatedInactiveGold();
+  const simulation = new MineSimulation(cloneBalance(), { fixedStepSeconds: 10 });
+  simulation.importSaveGame(saved, saved.savedAt);
+  const before = simulation.getState();
+  const goldBefore = before.mines.gold;
+  const expectedCash = calculateExpectedOfflineCashFromBaseValues(goldBefore, 10, simulation.balance);
+
+  assert.equal(goldBefore.currentValues.mineShaft.throughputPerSecond > goldBefore.baseValues.mineShaft.throughputPerSecond, true);
+  assert.equal(goldBefore.currentValues.elevator.throughputPerSecond > goldBefore.baseValues.elevator.throughputPerSecond, true);
+  assert.equal(goldBefore.currentValues.warehouse.throughputPerSecond > goldBefore.baseValues.warehouse.throughputPerSecond, true);
+
+  simulation.update(10);
+
+  assert.equal(simulation.getState().mines.gold.pendingOfflineCash, expectedCash);
 });
 
 test("Mine-Wechsel sammelt pending Offline-Cash nicht automatisch ein", () => {
