@@ -17,6 +17,7 @@ export type SimulationCommandName =
   | "unassignManager"
   | "activateManagerAbility"
   | "removeDepthBlockade"
+  | "skipDepthBlockade"
   | "collectMineOfflineCash";
 
 export type SimulationCommandRejectionReason =
@@ -45,6 +46,8 @@ export type SimulationActionFailureReason =
   | "depth_blockade_not_removed"
   | "shaft_not_reachable"
   | "blockade_not_reachable"
+  | "blockade_timer_not_started"
+  | "not_enough_super_cash"
   | "previous_depth_incomplete"
   | "invalid_blockade"
   | "already_removing"
@@ -153,6 +156,26 @@ export type SimulationEvent =
       previousMoney: number;
       currentMoney: number;
       delta: number;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "superCashAwarded";
+      mineId?: string;
+      amount: number;
+      previousSuperCash: number;
+      currentSuperCash: number;
+      source: "upgrade" | "prestige";
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "superCashSpent";
+      mineId?: string;
+      amount: number;
+      previousSuperCash: number;
+      currentSuperCash: number;
+      source: "depthBlockadeSkip";
     }
   | {
       sequence: number;
@@ -394,6 +417,15 @@ export type SimulationEvent =
       type: "depthBlockadeRemoved";
       mineId?: string;
       blockadeId: string;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "depthBlockadeSkipped";
+      mineId?: string;
+      blockadeId: string;
+      skippedSeconds: number;
+      superCashCost: number;
     }
   | {
       sequence: number;

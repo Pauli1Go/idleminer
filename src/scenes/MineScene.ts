@@ -67,6 +67,7 @@ import warehousePileSmallUrl from "../../assets/world/warehouse_storage_pile_coa
 import {
   DEFAULT_ACTIVE_MINE_ID,
   getElevatorSpeedMultiplier,
+  getDepthBlockadeSkipCost,
   getManagerHireCost,
   getValidAbilityTypesForArea,
   managerRanks,
@@ -101,6 +102,7 @@ const PINNED_UI_PANEL_DEPTH = 30;
 const PINNED_UI_TEXT_DEPTH = 31;
 const PINNED_UI_INTERACTIVE_DEPTH = 32;
 const MAP_VIEW_DEPTH = 1000;
+const SUPER_CASH_ANIMATION_DEPTH = MAP_VIEW_DEPTH + 180;
 
 const SURFACE_WORLD_OFFSET_X = 84;
 const WAREHOUSE_BUILDING_X = 234;
@@ -160,6 +162,7 @@ const DEPTH_BLOCKADE_IMAGE_WIDTH = GAME_WIDTH;
 const DEPTH_BLOCKADE_IMAGE_HEIGHT = 232;
 const DEPTH_BLOCKADE_BUTTON_WIDTH = 188;
 const DEPTH_BLOCKADE_BUTTON_HEIGHT = 38;
+const DEPTH_BLOCKADE_SKIP_ICON_SIZE = 24;
 const DEPTH_BLOCKADE_PANEL_WIDTH = 432;
 const DEPTH_BLOCKADE_PANEL_HEIGHT = 112;
 const DEPTH_BLOCKADE_CENTER_X = GAME_WIDTH / 2;
@@ -177,6 +180,8 @@ const SUPER_CASH_PANEL_X = MONEY_PANEL_X;
 const SUPER_CASH_PANEL_Y = MONEY_PANEL_Y + MONEY_PANEL_HEIGHT + MONEY_PANEL_GAP;
 const SUPER_CASH_PANEL_WIDTH = MONEY_PANEL_WIDTH;
 const SUPER_CASH_PANEL_HEIGHT = MONEY_PANEL_HEIGHT;
+const SUPER_CASH_FLY_ICON_SIZE = 40;
+const CURRENCY_PANEL_ICON_SIZE = 42;
 const FLOW_PANEL_X = 197;
 const FLOW_PANEL_Y = 14;
 const FLOW_PANEL_WIDTH = 394;
@@ -889,6 +894,7 @@ interface DepthBlockadeUi {
   titleText: Phaser.GameObjects.Text;
   hintText: Phaser.GameObjects.Text;
   buttonImage: Phaser.GameObjects.Image;
+  skipCostIcon: Phaser.GameObjects.Image;
   buttonText: Phaser.GameObjects.Text;
   buttonZone: Phaser.GameObjects.Zone;
 }
@@ -905,6 +911,15 @@ interface CurrencyPanelUi {
   icon: Phaser.GameObjects.Image;
   text: Phaser.GameObjects.Text;
 }
+
+interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+type BoundedScrollObject = Phaser.GameObjects.GameObject
+  & Phaser.GameObjects.Components.ScrollFactor
+  & { getBounds(): Phaser.Geom.Rectangle };
 
 export class MineScene extends Phaser.Scene {
   private readonly balance: BalanceConfig;
@@ -974,6 +989,10 @@ export class MineScene extends Phaser.Scene {
   private activeBuyMode: UpgradeBuyMode = 1;
   private activeManagerAbilityTab: ManagerAbilityType | "all" = "all";
   private appliedMineVisualId: MineId | null = null;
+  private pendingSuperCashAnimationSource: ScreenPoint | undefined;
+  private displayedSuperCashValue: number | undefined;
+  private activeSuperCashAnimationTweens = 0;
+  private activeSuperCashAnimationIcons = new Set<Phaser.GameObjects.Image>();
 
   constructor(balance: BalanceConfig, saveRepository?: SaveGameRepository) {
     super("MineScene");
@@ -1320,6 +1339,11 @@ export class MineScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(UI_TEXT_DEPTH + 2)
         .setVisible(false);
+      const skipCostIcon = this.add
+        .image(DEPTH_BLOCKADE_CENTER_X - 36, centerY + 24, "supercash-icon")
+        .setDisplaySize(DEPTH_BLOCKADE_SKIP_ICON_SIZE, DEPTH_BLOCKADE_SKIP_ICON_SIZE)
+        .setDepth(UI_TEXT_DEPTH + 2)
+        .setVisible(false);
       const buttonZone = this.add
         .zone(DEPTH_BLOCKADE_CENTER_X, centerY + 24, DEPTH_BLOCKADE_BUTTON_WIDTH, DEPTH_BLOCKADE_BUTTON_HEIGHT)
         .setOrigin(0.5)
@@ -1328,7 +1352,12 @@ export class MineScene extends Phaser.Scene {
         .setVisible(false);
 
       buttonZone.on("pointerdown", () => {
-        this.applyFrame(this.viewModel.removeDepthBlockade(blockade.blockadeId), this.time.now);
+        const currentBlockade = this.latestState?.blockades[blockade.blockadeId];
+        const frame = currentBlockade?.isRemoving
+          ? this.viewModel.skipDepthBlockade(blockade.blockadeId)
+          : this.viewModel.removeDepthBlockade(blockade.blockadeId);
+
+        this.applyFrame(frame, this.time.now);
       });
 
       this.depthBlockades.push({
@@ -1340,6 +1369,7 @@ export class MineScene extends Phaser.Scene {
         titleText,
         hintText,
         buttonImage,
+        skipCostIcon,
         buttonText,
         buttonZone
       });
@@ -1940,6 +1970,7 @@ export class MineScene extends Phaser.Scene {
 
     upgradeButtonZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
       event.stopPropagation();
+      this.queueSuperCashAnimationSourceFrom(rowUi.upgradeButtonZone);
       this.applyFrame(this.viewModel.upgradeMineShaft(shaftId), this.time.now);
     });
 
@@ -2453,9 +2484,9 @@ export class MineScene extends Phaser.Scene {
     if (this.mapMoneyText !== undefined) {
       fitTextToWidth(this.mapMoneyText, MAP_MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
     }
-    this.mapSuperCashText?.setText(formatSuperCash(state.superCash));
+    this.mapSuperCashText?.setText(formatSuperCash(this.getDisplayedSuperCashValue(state)));
     if (this.mapSuperCashText !== undefined) {
-      fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+      fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
     }
 
     for (const ui of this.mapMineAreaUi) {
@@ -2714,8 +2745,14 @@ export class MineScene extends Phaser.Scene {
     ];
     const close = () => objects.forEach((obj) => obj.destroy());
 
-    cancelButton.zone.once("pointerdown", close);
-    confirmButton.zone.once("pointerdown", () => {
+    cancelButton.zone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.pendingSuperCashAnimationSource = undefined;
+      close();
+    });
+    confirmButton.zone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.pendingSuperCashAnimationSource = this.getScreenCenter(confirmButton.zone);
       this.applyFrame(this.viewModel.prestigeMine(mineId), this.time.now);
       close();
     });
@@ -2741,6 +2778,7 @@ export class MineScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(depth + 1));
     const zone = this.pinUi(
       this.add.zone(x, y, width, height)
+        .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
         .setDepth(depth + 2)
     );
@@ -2929,7 +2967,7 @@ export class MineScene extends Phaser.Scene {
     formatter: (value: number) => string
   ): CurrencyPanelUi {
     const frame = this.createBarPanel(x, y, width, height);
-    const icon = this.pinUi(this.add.image(x + 22, y + height / 2, iconKey).setDisplaySize(42, 42).setDepth(PINNED_UI_TEXT_DEPTH));
+    const icon = this.pinUi(this.add.image(x + 22, y + height / 2, iconKey).setDisplaySize(CURRENCY_PANEL_ICON_SIZE, CURRENCY_PANEL_ICON_SIZE).setDepth(PINNED_UI_TEXT_DEPTH));
     const text = this.pinUi(
       this.add
         .text(x + 42, y + height / 2, formatter(0), topBarTextStyle(20, "#4b2709"))
@@ -2962,7 +3000,7 @@ export class MineScene extends Phaser.Scene {
     const icon = addMapObject(
       this.add
         .image(x + 22, y + height / 2, iconKey)
-        .setDisplaySize(42, 42)
+        .setDisplaySize(CURRENCY_PANEL_ICON_SIZE, CURRENCY_PANEL_ICON_SIZE)
         .setDepth(MAP_VIEW_DEPTH + 9)
     );
     const text = addMapObject(
@@ -2976,7 +3014,8 @@ export class MineScene extends Phaser.Scene {
   }
 
   private isSuperCashVisible(state: GameState | undefined): boolean {
-    return IS_DEBUG || (state?.superCash ?? 0) > 0;
+    const hasActiveBlockadeTimer = Object.values(state?.blockades ?? {}).some((blockade) => blockade.isRemoving && !blockade.isRemoved);
+    return IS_DEBUG || (state?.superCash ?? 0) > 0 || hasActiveBlockadeTimer;
   }
 
   private setCurrencyPanelVisible(panel: CurrencyPanelUi | undefined, visible: boolean): void {
@@ -2994,8 +3033,9 @@ export class MineScene extends Phaser.Scene {
     this.moneyText.setText(formatMoney(state.money));
     fitTextToWidth(this.moneyText, MONEY_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
 
-    this.superCashText.setText(formatSuperCash(state.superCash));
-    fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+    const superCashValue = this.getDisplayedSuperCashValue(state);
+    this.superCashText.setText(formatSuperCash(superCashValue));
+    fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
 
     this.mapMoneyText?.setText(formatMoney(state.money));
     if (this.mapMoneyText !== undefined) {
@@ -3003,10 +3043,175 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.setCurrencyPanelVisible(this.mapSuperCashPanel, this.isSuperCashVisible(state));
-    this.mapSuperCashText?.setText(formatSuperCash(state.superCash));
+    this.mapSuperCashText?.setText(formatSuperCash(superCashValue));
     if (this.mapSuperCashText !== undefined) {
-      fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12]);
+      fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
     }
+  }
+
+  private getDisplayedSuperCashValue(state: GameState | undefined): number {
+    return this.displayedSuperCashValue ?? state?.superCash ?? 0;
+  }
+
+  private refreshSuperCashDisplay(): void {
+    const value = this.getDisplayedSuperCashValue(this.latestState);
+    this.superCashText.setText(formatSuperCash(value));
+    fitTextToWidth(this.superCashText, SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
+    this.mapSuperCashText?.setText(formatSuperCash(value));
+    if (this.mapSuperCashText !== undefined) {
+      fitTextToWidth(this.mapSuperCashText, MAP_SUPER_CASH_PANEL_WIDTH - 52, [20, 18, 16, 14, 12, 10, 9, 8]);
+    }
+  }
+
+  private queueSuperCashAnimationSourceFrom(gameObject: BoundedScrollObject): void {
+    this.pendingSuperCashAnimationSource = this.getScreenCenter(gameObject);
+  }
+
+  private getScreenCenter(gameObject: BoundedScrollObject): ScreenPoint {
+    const bounds = gameObject.getBounds();
+    return {
+      x: bounds.centerX - this.cameras.main.scrollX * gameObject.scrollFactorX,
+      y: bounds.centerY - this.cameras.main.scrollY * gameObject.scrollFactorY
+    };
+  }
+
+  private processSuperCashAwardEvents(events: SimulationEvent[], state: GameState): void {
+    const awards = events.filter(
+      (event): event is Extract<SimulationEvent, { type: "superCashAwarded" }> =>
+        event.type === "superCashAwarded" && event.amount > 0
+    );
+
+    if (awards.length === 0) {
+      this.pendingSuperCashAnimationSource = undefined;
+      return;
+    }
+
+    const source = this.pendingSuperCashAnimationSource ?? { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 };
+    this.pendingSuperCashAnimationSource = undefined;
+
+    if (this.activeSuperCashAnimationTweens <= 0) {
+      this.displayedSuperCashValue = awards[0].previousSuperCash;
+    }
+
+    awards.forEach((award, index) => {
+      this.animateSuperCashAward(source, award.amount, state.superCash, index * 90);
+    });
+  }
+
+  private animateSuperCashAward(source: ScreenPoint, amount: number, finalSuperCash: number, startDelayMs: number): void {
+    const iconCount = Math.max(1, Math.round(amount / 10));
+    const baseAmountPerIcon = amount / iconCount;
+    this.activeSuperCashAnimationTweens += iconCount;
+
+    for (let i = 0; i < iconCount; i += 1) {
+      const icon = this.pinUi(
+        this.add
+          .image(source.x, source.y, "supercash-icon")
+          .setDisplaySize(SUPER_CASH_FLY_ICON_SIZE, SUPER_CASH_FLY_ICON_SIZE)
+          .setAlpha(0)
+          .setDepth(SUPER_CASH_ANIMATION_DEPTH)
+      );
+      this.activeSuperCashAnimationIcons.add(icon);
+      const flyScaleX = icon.scaleX;
+      const flyScaleY = icon.scaleY;
+      const scatterX = Phaser.Math.Clamp(source.x + Phaser.Math.Between(-95, 95), 16, GAME_WIDTH - 16);
+      const scatterY = Phaser.Math.Clamp(source.y + Phaser.Math.Between(-85, 45), 16, GAME_HEIGHT - 16);
+      const target = this.getSuperCashIconTarget();
+      const arrivalAmount = i === iconCount - 1
+        ? amount - baseAmountPerIcon * (iconCount - 1)
+        : baseAmountPerIcon;
+
+      this.tweens.add({
+        targets: icon,
+        x: scatterX,
+        y: scatterY,
+        alpha: 1,
+        scaleX: flyScaleX * 1.08,
+        scaleY: flyScaleY * 1.08,
+        angle: Phaser.Math.Between(-28, 28),
+        duration: 170,
+        delay: startDelayMs + i * 16,
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          this.tweens.add({
+            targets: icon,
+            x: target.x + Phaser.Math.Between(-4, 4),
+            y: target.y + Phaser.Math.Between(-4, 4),
+            alpha: 0.9,
+            scaleX: flyScaleX * 0.68,
+            scaleY: flyScaleY * 0.68,
+            angle: icon.angle + Phaser.Math.Between(-55, 55),
+            duration: 560,
+            ease: "Cubic.easeIn",
+            onComplete: () => {
+              icon.destroy();
+              this.activeSuperCashAnimationIcons.delete(icon);
+              this.displayedSuperCashValue = Math.round((this.getDisplayedSuperCashValue(this.latestState) + arrivalAmount) * 1000) / 1000;
+              this.activeSuperCashAnimationTweens = Math.max(0, this.activeSuperCashAnimationTweens - 1);
+              if (this.activeSuperCashAnimationTweens === 0) {
+                this.displayedSuperCashValue = finalSuperCash;
+              }
+              this.refreshSuperCashDisplay();
+              this.pulseSuperCashIcon();
+            }
+          });
+        }
+      });
+    }
+  }
+
+  private processSuperCashSpentEvents(events: SimulationEvent[], state: GameState): void {
+    if (!events.some((event) => event.type === "superCashSpent")) {
+      return;
+    }
+
+    this.pendingSuperCashAnimationSource = undefined;
+    this.displayedSuperCashValue = state.superCash;
+    this.activeSuperCashAnimationTweens = 0;
+
+    for (const icon of this.activeSuperCashAnimationIcons) {
+      this.tweens.killTweensOf(icon);
+      icon.destroy();
+    }
+
+    this.activeSuperCashAnimationIcons.clear();
+    this.refreshSuperCashDisplay();
+  }
+
+  private getSuperCashIconTarget(): ScreenPoint {
+    return this.getScreenCenter(this.getActiveSuperCashIcon());
+  }
+
+  private getActiveSuperCashIcon(): Phaser.GameObjects.Image {
+    return this.mapViewContainer !== undefined && this.mapSuperCashPanel !== undefined
+      ? this.mapSuperCashPanel.icon
+      : this.superCashPanel.icon;
+  }
+
+  private pulseSuperCashIcon(): void {
+    const icon = this.getActiveSuperCashIcon();
+    this.tweens.killTweensOf(icon);
+    icon
+      .setDisplaySize(CURRENCY_PANEL_ICON_SIZE, CURRENCY_PANEL_ICON_SIZE)
+      .setTint(0xffffff);
+    const baseScaleX = icon.scaleX;
+    const baseScaleY = icon.scaleY;
+
+    this.tweens.add({
+      targets: icon,
+      scaleX: baseScaleX * 1.18,
+      scaleY: baseScaleY * 1.18,
+      alpha: 1,
+      duration: 90,
+      yoyo: true,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        icon
+          .setDisplaySize(CURRENCY_PANEL_ICON_SIZE, CURRENCY_PANEL_ICON_SIZE)
+          .clearTint()
+          .setAlpha(1);
+      }
+    });
   }
 
   private createBuyModeBar(): void {
@@ -3173,6 +3378,7 @@ export class MineScene extends Phaser.Scene {
 
     buttonZone.on("pointerdown", () => {
       if (this.miniUpgradeCards && this.miniUpgradeCards[target].enabled) {
+        this.queueSuperCashAnimationSourceFrom(buttonZone);
         if (target === "warehouse") {
           this.applyFrame(this.viewModel.purchaseWarehouseUpgrade(), this.time.now);
         } else {
@@ -3514,6 +3720,8 @@ export class MineScene extends Phaser.Scene {
       visual.commandFeedback.visible,
       visual.commandFeedback.text
     );
+    this.processSuperCashAwardEvents(events, state);
+    this.processSuperCashSpentEvents(events, state);
     this.applyUiState(state, events, buyMode);
   }
 
@@ -3738,7 +3946,7 @@ export class MineScene extends Phaser.Scene {
     const managerPanelDynamicChanged =
       eventTypes.has("moneyChanged") || currentManagerSecond !== this.lastManagerPanelRefreshSecond;
 
-    if (refreshAll || eventTypes.has("moneyChanged")) {
+    if (refreshAll || eventTypes.has("moneyChanged") || eventTypes.has("superCashAwarded") || eventTypes.has("superCashSpent")) {
       this.refreshCurrencyPanels(state);
     }
 
@@ -3826,22 +4034,37 @@ export class MineScene extends Phaser.Scene {
       ui.hintText.setVisible(visible);
       ui.buttonImage.setVisible(visible);
       ui.buttonText.setVisible(visible);
+      ui.skipCostIcon.setVisible(visible && blockade?.isRemoving === true);
       ui.buttonZone.setVisible(visible);
 
       if (!visible || blockade === undefined) {
         ui.panel.clear();
+        ui.skipCostIcon.setVisible(false);
         ui.buttonZone.disableInteractive();
         continue;
       }
 
       const canAfford = state.money + Number.EPSILON >= blockade.removalCost;
+      const skipCost = getDepthBlockadeSkipCost(blockade.remainingRemovalSeconds);
+      const canSkip = state.superCash + Number.EPSILON >= skipCost;
       const previousShaftUnlocked = state.entities.mineShafts[ui.afterShaftId]?.isUnlocked ?? false;
-      const enabled = previousShaftUnlocked && canAfford && !blockade.isRemoving;
+      const enabled = blockade.isRemoving
+        ? canSkip
+        : previousShaftUnlocked && canAfford;
 
-      ui.buttonText.setText(blockade.isRemoving ? "Removing..." : `Clear ${formatAmount(blockade.removalCost)}`);
+      ui.buttonText
+        .setText(blockade.isRemoving ? `$$${formatAmount(skipCost)}` : `Clear ${formatAmount(blockade.removalCost)}`)
+        .setOrigin(blockade.isRemoving ? 0 : 0.5, 0.5)
+        .setX(blockade.isRemoving ? DEPTH_BLOCKADE_CENTER_X - 20 : DEPTH_BLOCKADE_CENTER_X);
+      ui.skipCostIcon
+        .setVisible(blockade.isRemoving)
+        .setAlpha(blockade.isRemoving ? (enabled ? 1 : 0.56) : 0)
+        .setTint(enabled ? 0xffffff : 0x8c6c58);
       ui.hintText.setText(
         blockade.isRemoving
-          ? `Clearing: ${formatDuration(blockade.remainingRemovalSeconds)}`
+          ? canSkip
+            ? `Tap to skip: ${formatDuration(blockade.remainingRemovalSeconds)} left`
+            : "Need more Super Cash to skip."
           : canAfford
             ? "Remove the rockfall to reach the next depth."
             : "Need more cash to clear this blockade."
@@ -3873,7 +4096,7 @@ export class MineScene extends Phaser.Scene {
         14
       );
 
-      fitTextToWidth(ui.buttonText, DEPTH_BLOCKADE_BUTTON_WIDTH - 22, [13, 12, 11, 10]);
+      fitTextToWidth(ui.buttonText, blockade.isRemoving ? DEPTH_BLOCKADE_BUTTON_WIDTH - 76 : DEPTH_BLOCKADE_BUTTON_WIDTH - 22, [13, 12, 11, 10]);
       fitTextToWidth(ui.hintText, DEPTH_BLOCKADE_PANEL_WIDTH - 36, [12, 11, 10]);
       this.setWorldButtonEnabled(ui.buttonImage, ui.buttonText, ui.buttonZone, enabled, true);
     }
@@ -4722,6 +4945,7 @@ export class MineScene extends Phaser.Scene {
         return;
       }
 
+      this.queueSuperCashAnimationSourceFrom(card.buttonZone);
       this.applyFrame(this.viewModel.purchaseUpgrade(target), this.time.now);
     });
   }
@@ -5535,11 +5759,20 @@ function formatMoney(value: number): string {
 }
 
 function formatSuperCash(value: number): string {
-  return `$$${formatAmount(value)}`;
+  return `$$${formatExplicitAmount(value)}`;
 }
 
 function formatAmount(value: number): string {
   return formatLargeNumber(value);
+}
+
+function formatExplicitAmount(value: number): string {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+
+  const roundedValue = Math.round(value);
+  return roundedValue.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
 function formatFlowStatus(state: GameState, events: SimulationEvent[]): string {

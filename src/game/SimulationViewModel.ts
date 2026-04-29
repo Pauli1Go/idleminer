@@ -175,6 +175,10 @@ export class SimulationViewModel {
     return this.frameFromEvents(this.simulation.removeDepthBlockade(blockadeId));
   }
 
+  skipDepthBlockade(blockadeId: string): SimulationFrame {
+    return this.frameFromEvents(this.simulation.skipDepthBlockade(blockadeId));
+  }
+
   upgradeMineShaft(shaftId: number): SimulationFrame {
     return this.frameFromEvents(this.simulation.upgradeMineShaft(shaftId, this.buyMode));
   }

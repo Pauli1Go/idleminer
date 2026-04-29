@@ -97,6 +97,8 @@ interface MineRuntime {
 
 const SUPER_CASH_LEVEL_MILESTONE = 100;
 const SUPER_CASH_REWARD_PER_LEVEL_MILESTONE = 100;
+export const DEPTH_BLOCKADE_SKIP_INTERVAL_SECONDS = 30 * 60;
+export const DEPTH_BLOCKADE_SKIP_SUPER_CASH_PER_INTERVAL = 100;
 const DEBUG_SUPER_CASH = 10000;
 const SUPER_CASH_REWARD_BY_PRESTIGE_LEVEL: Record<number, number> = {
   1: 100,
@@ -106,6 +108,14 @@ const SUPER_CASH_REWARD_BY_PRESTIGE_LEVEL: Record<number, number> = {
   5: 1000,
   6: 2000
 };
+
+export function getDepthBlockadeSkipCost(remainingRemovalSeconds: number): number {
+  if (!Number.isFinite(remainingRemovalSeconds) || remainingRemovalSeconds <= EPSILON) {
+    return 0;
+  }
+
+  return Math.ceil(remainingRemovalSeconds / DEPTH_BLOCKADE_SKIP_INTERVAL_SECONDS) * DEPTH_BLOCKADE_SKIP_SUPER_CASH_PER_INTERVAL;
+}
 
 export class MineSimulation {
   readonly balance: BalanceConfig;
@@ -584,12 +594,42 @@ export class MineSimulation {
     );
   }
 
-  private awardSuperCash(amount: number): void {
+  private awardSuperCash(amount: number, source: "upgrade" | "prestige", events: SimulationEvent[]): void {
     if (amount <= 0) {
       return;
     }
 
+    const previousSuperCash = this.superCash;
     this.superCash = roundForState(this.superCash + amount);
+    this.emit(
+      {
+        type: "superCashAwarded",
+        amount,
+        previousSuperCash,
+        currentSuperCash: this.superCash,
+        source
+      },
+      events
+    );
+  }
+
+  private spendSuperCash(amount: number, source: "depthBlockadeSkip", events: SimulationEvent[]): void {
+    if (amount <= 0) {
+      return;
+    }
+
+    const previousSuperCash = this.superCash;
+    this.superCash = roundForState(Math.max(0, this.superCash - amount));
+    this.emit(
+      {
+        type: "superCashSpent",
+        amount,
+        previousSuperCash,
+        currentSuperCash: this.superCash,
+        source
+      },
+      events
+    );
   }
 
   private getSuperCashForLevelMilestones(previousLevel: number, currentLevel: number): number {
@@ -808,7 +848,7 @@ export class MineSimulation {
     mine.prestigeLevel = nextPrestige.prestigeLevel;
     mine.currentPrestigeMultiplier = nextPrestige.multiplier;
     mine.mineMultiplier = nextPrestige.multiplier;
-    this.awardSuperCash(this.getSuperCashForPrestigeLevel(nextPrestige.prestigeLevel));
+    this.awardSuperCash(this.getSuperCashForPrestigeLevel(nextPrestige.prestigeLevel), "prestige", events);
     this.resetMineProgress(mine, { isUnlocked: true });
 
     this.emit(
@@ -1297,7 +1337,7 @@ export class MineSimulation {
 
     this.baseMineShaftStatsByShaftId[shaftId] = this.createMineShaftStats(shaftId, result.currentLevel);
     this.syncMineShaftStats(shaftId, events);
-    this.awardSuperCash(this.getSuperCashForLevelMilestones(result.previousLevel, result.currentLevel));
+    this.awardSuperCash(this.getSuperCashForLevelMilestones(result.previousLevel, result.currentLevel), "upgrade", events);
 
     this.emit(
       {
@@ -1362,9 +1402,7 @@ export class MineSimulation {
     this.money = result.currentMoney;
     this.applyUpgradeStats(target, result.currentStats);
 
-    if (target === "elevator") {
-      this.awardSuperCash(this.getSuperCashForLevelMilestones(result.previousLevel, result.currentLevel));
-    }
+    this.awardSuperCash(this.getSuperCashForLevelMilestones(result.previousLevel, result.currentLevel), "upgrade", events);
 
     this.emit(
       {
@@ -2716,6 +2754,8 @@ export class MineSimulation {
       case "miningCycleStarted":
       case "actionFailed":
       case "oreProduced":
+      case "superCashAwarded":
+      case "superCashSpent":
       case "upgradePurchased":
       case "mineShaftUpgradePurchased":
       case "statsChanged":
@@ -2730,6 +2770,7 @@ export class MineSimulation {
       case "automationStateChanged":
       case "depthBlockadeRemovalStarted":
       case "depthBlockadeRemoved":
+      case "depthBlockadeSkipped":
         return {
           ...event,
           mineId: this.activeMineId
@@ -2813,6 +2854,55 @@ export class MineSimulation {
       currentMoney: this.money,
       delta: roundForState(this.money - previousMoney)
     }, events);
+
+    return events;
+  }
+
+  skipDepthBlockade(blockadeId: string): SimulationEvent[] {
+    const events: SimulationEvent[] = [];
+    const blockade = this.blockades[blockadeId];
+
+    if (!blockade) {
+      this.emitActionFailed("skipDepthBlockade", "invalid_blockade", "This blockade does not exist.", events);
+      return events;
+    }
+
+    if (blockade.isRemoved) {
+      this.emitActionFailed("skipDepthBlockade", "already_unlocked", "This blockade is already removed.", events);
+      return events;
+    }
+
+    if (!blockade.isRemoving) {
+      this.emitActionFailed("skipDepthBlockade", "blockade_timer_not_started", "Start clearing this blockade before skipping the timer.", events);
+      return events;
+    }
+
+    const skippedSeconds = roundForState(blockade.remainingRemovalSeconds);
+    const superCashCost = getDepthBlockadeSkipCost(skippedSeconds);
+
+    if (this.superCash + Number.EPSILON < superCashCost) {
+      this.emitActionFailed("skipDepthBlockade", "not_enough_super_cash", "Not enough Super Cash to skip this blockade.", events);
+      return events;
+    }
+
+    this.spendSuperCash(superCashCost, "depthBlockadeSkip", events);
+    blockade.remainingRemovalSeconds = 0;
+    blockade.isRemoving = false;
+    blockade.isRemoved = true;
+
+    this.emit({
+      type: "depthBlockadeSkipped",
+      blockadeId,
+      skippedSeconds,
+      superCashCost
+    }, events);
+
+    this.emit({
+      type: "depthBlockadeRemoved",
+      blockadeId
+    } as any, events);
+
+    this.syncReachability(events);
 
     return events;
   }

@@ -8,6 +8,7 @@ import {
   MineSimulation,
   SAVEGAME_VERSION,
   createLocalStorageSaveGameRepository,
+  getDepthBlockadeSkipCost,
   parseSaveGame,
   serializeSaveGame,
   type BalanceConfig,
@@ -243,4 +244,110 @@ test("auto-saves after the configured interval", () => {
   assert.equal(saved.savedAt > 0, true);
 
   viewModel.dispose();
+});
+
+test("backfills Super Cash auch beim Migrieren eines echten V6-Saves", () => {
+  const legacyV6Save = {
+    version: 6 as const,
+    savedAt: 1234,
+    state: {
+      timeSeconds: 20,
+      money: 500,
+      levels: {
+        mineShaft: 101,
+        elevator: 101,
+        warehouse: 2
+      },
+      resources: {
+        mineShaft: 7,
+        elevator: 2,
+        warehouse: 5
+      },
+      totals: {
+        producedOre: 40,
+        collectedByElevatorOre: 28,
+        transportedOre: 21,
+        soldOre: 18,
+        moneyEarned: 150
+      },
+      managers: {
+        hireCountsByArea: {
+          mineShaft: 0,
+          elevator: 0,
+          warehouse: 0
+        },
+        assignedManagerIdsByArea: {
+          mineShaft: null,
+          elevator: null,
+          warehouse: null
+        },
+        assignedManagerIdsByShaft: {},
+        ownedManagers: []
+      },
+      mineShafts: [
+        {
+          shaftId: 1,
+          isUnlocked: true,
+          level: 101,
+          storedOre: 7,
+          state: "idle",
+          cycleProgressSeconds: 0,
+          assignedManagerId: null,
+          activeManagerAbilityState: null
+        }
+      ],
+      blockades: [],
+      entities: {
+        mineShaft: {
+          state: "idle",
+          cycleProgressSeconds: 0,
+          storedOre: 7
+        },
+        elevator: {
+          state: "idle",
+          carriedOre: 2,
+          remainingTripSeconds: 0
+        },
+        warehouse: {
+          state: "idle",
+          sellProgressSeconds: 0,
+          storedOre: 5
+        }
+      }
+    } as any
+  };
+
+  const restored = new MineSimulation(balance, { fixedStepSeconds: 0.1 });
+  restored.importSaveGame(parseSaveGame(JSON.stringify(legacyV6Save))!);
+
+  assert.equal(restored.getState().levels.mineShaft, 101);
+  assert.equal(restored.getState().levels.elevator, 101);
+  assert.equal(restored.getState().superCash, 200);
+});
+
+test("charges Super Cash to skip active blockade timers per started 30 minute block", () => {
+  assert.equal(getDepthBlockadeSkipCost(0), 0);
+  assert.equal(getDepthBlockadeSkipCost(1), 100);
+  assert.equal(getDepthBlockadeSkipCost(1800), 100);
+  assert.equal(getDepthBlockadeSkipCost(1801), 200);
+
+  const simulation = new MineSimulation(balance, { fixedStepSeconds: 0.1, isDebug: true });
+  const simulationInternals = simulation as unknown as { money: number };
+  simulationInternals.money = 1e20;
+
+  for (let index = 0; index < 5; index += 1) {
+    simulation.mineShafts[index].isUnlocked = true;
+  }
+
+  simulation.removeDepthBlockade("blockade_5_6");
+
+  const skipEvents = simulation.skipDepthBlockade("blockade_5_6");
+  const state = simulation.getState();
+
+  assert.equal(state.blockades["blockade_5_6"].isRemoved, true);
+  assert.equal(state.blockades["blockade_5_6"].isRemoving, false);
+  assert.equal(state.superCash, 9900);
+  assert.equal(skipEvents.some((event) => event.type === "superCashSpent" && event.amount === 100), true);
+  assert.equal(skipEvents.some((event) => event.type === "depthBlockadeSkipped"), true);
+  assert.equal(skipEvents.some((event) => event.type === "depthBlockadeRemoved"), true);
 });
