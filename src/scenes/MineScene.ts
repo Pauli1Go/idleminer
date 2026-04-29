@@ -1089,6 +1089,7 @@ export class MineScene extends Phaser.Scene {
   private tutorialCompletionPending = false;
   private managerBoostHintShown = false;
   private managerBoostHintActive = false;
+  private readonly hasExistingSaveGame: boolean;
 
   constructor(balance: BalanceConfig, saveRepository?: SaveGameRepository) {
     super("MineScene");
@@ -1096,11 +1097,19 @@ export class MineScene extends Phaser.Scene {
     this.totalMineShafts = Math.max(1, balance.mineShaft.totalMineShafts);
     this.worldHeight = this.computeWorldHeight(this.totalMineShafts);
     this.saveRepository = saveRepository;
+    this.hasExistingSaveGame = saveRepository?.load() !== null;
     this.viewModel = new SimulationViewModel(balance, { 
       saveRepository,
       isDebug: IS_DEBUG
     });
     this.loadTutorialProgress();
+
+    if (this.hasExistingSaveGame) {
+      this.tutorialCompleted = true;
+      this.tutorialProgressIndex = tutorialStepOrder.length;
+      this.tutorialManagerUnlockAcknowledged = true;
+      this.saveTutorialProgress();
+    }
   }
 
   preload(): void {
