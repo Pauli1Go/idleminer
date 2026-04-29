@@ -20,7 +20,9 @@ import warehouseWorkerSellUrl from "../../assets/characters/warehouse_worker_sel
 import buttonPanelUrl from "../../assets/ui/button_panel.png";
 import coinIconUrl from "../../assets/ui/coin_icon.png";
 import mapButtonIconUrl from "../../assets/ui/map_button_icon.png";
+import navigationArrowIconUrl from "../../assets/ui/navigation_arrow_icon.png";
 import oreIconUrl from "../../assets/ui/ore_icon.png";
+import shopIconUrl from "../../assets/ui/shop_icon.png";
 import superCashIconUrl from "../../assets/ui/supercash_icon.png";
 import goldOreIconUrl from "../../assets/other mines/gold/ui/ore_icon.png";
 import rubyOreIconUrl from "../../assets/other mines/ruby/ui/ore_icon.png";
@@ -66,6 +68,7 @@ import warehousePileFullUrl from "../../assets/world/warehouse_storage_pile_coal
 import warehousePileSmallUrl from "../../assets/world/warehouse_storage_pile_coal_small.png";
 import {
   DEFAULT_ACTIVE_MINE_ID,
+  EPSILON,
   getElevatorSpeedMultiplier,
   getDepthBlockadeSkipCost,
   getManagerHireCost,
@@ -215,6 +218,17 @@ const MAP_BUTTON_ICON_SIZE = 74;
 const MAP_BUTTON_ICON_HOVER_SIZE = 76;
 const MAP_BUTTON_X = MONEY_PANEL_X + MAP_BUTTON_SIZE / 2;
 const MAP_BUTTON_Y = GAME_HEIGHT - MONEY_PANEL_Y - MAP_BUTTON_SIZE / 2;
+const ALL_MANAGER_ABILITIES_BUTTON_GAP = MONEY_PANEL_GAP;
+const ALL_MANAGER_ABILITIES_BUTTON_X = MAP_BUTTON_X;
+const ALL_MANAGER_ABILITIES_BUTTON_Y = MAP_BUTTON_Y - MAP_BUTTON_SIZE - ALL_MANAGER_ABILITIES_BUTTON_GAP;
+const ALL_MANAGER_ABILITIES_ICON_SIZE = 34;
+const ALL_MANAGER_ABILITIES_ICON_HOVER_SIZE = 36;
+const SHOP_BUTTON_X = MAP_BUTTON_X;
+const SHOP_BUTTON_Y = ALL_MANAGER_ABILITIES_BUTTON_Y - MAP_BUTTON_SIZE - MONEY_PANEL_GAP;
+const SHOP_ICON_SIZE = 54;
+const NAVIGATION_ARROW_ICON_SIZE = 54;
+const NAVIGATION_BUTTON_X = MAP_BUTTON_X;
+const NAVIGATION_BUTTON_Y = SHOP_BUTTON_Y - MAP_BUTTON_SIZE - MONEY_PANEL_GAP;
 const MAP_ISLAND_ASPECT_RATIO = 1402 / 1122;
 const MAP_ISLAND_DISPLAY_HEIGHT = 670;
 const MAP_ISLAND_DISPLAY_WIDTH = MAP_ISLAND_DISPLAY_HEIGHT * MAP_ISLAND_ASPECT_RATIO;
@@ -640,7 +654,9 @@ export const assetManifest = {
   "button-panel": buttonPanelUrl,
   "coin-icon": coinIconUrl,
   "map-button-icon": mapButtonIconUrl,
+  "navigation-arrow-icon": navigationArrowIconUrl,
   "ore-icon": oreIconUrl,
+  "shop-icon": shopIconUrl,
   "supercash-icon": superCashIconUrl,
   "ore-icon-coal": oreIconUrl,
   "ore-icon-gold": goldOreIconUrl,
@@ -755,6 +771,26 @@ interface ManagerPanelAssignedUi {
   managerId: string;
   timerText: Phaser.GameObjects.Text;
   abilityIcon: Phaser.GameObjects.Image;
+}
+
+interface AllManagerAbilitiesButtonUi {
+  background: Phaser.GameObjects.Graphics;
+  icons: Phaser.GameObjects.Image[];
+  zone: Phaser.GameObjects.Zone;
+  enabled: boolean;
+}
+
+interface ShopButtonUi {
+  background: Phaser.GameObjects.Graphics;
+  icon: Phaser.GameObjects.Image;
+  zone: Phaser.GameObjects.Zone;
+}
+
+interface NavigationButtonUi {
+  background: Phaser.GameObjects.Graphics;
+  icon: Phaser.GameObjects.Image;
+  zone: Phaser.GameObjects.Zone;
+  direction: "up" | "down";
 }
 
 interface MapMineAreaUi {
@@ -951,6 +987,10 @@ export class MineScene extends Phaser.Scene {
   private upgradeCards!: Record<"warehouse" | "elevator", UpgradeCardUi>;
   private miniUpgradeCards: Record<"warehouse" | "elevator", MiniUpgradeCardUi> | null = null;
   private managerSlots!: Record<"warehouse" | "elevator", ManagerSlotUi>;
+  private allManagerAbilitiesButton: AllManagerAbilitiesButtonUi | undefined;
+  private shopButton: ShopButtonUi | undefined;
+  private navigationButton: NavigationButtonUi | undefined;
+  private shopSoonModalObjects: Phaser.GameObjects.GameObject[] | undefined;
   private saveRepository?: SaveGameRepository;
   private activeManagerPanelArea: ManagerArea | null = null;
   private activeManagerPanelShaftId: number | null = null;
@@ -1376,6 +1416,9 @@ export class MineScene extends Phaser.Scene {
     this.createUpgradeCards();
     this.createStatusBar();
     this.createMapButton();
+    this.createAllManagerAbilitiesButton();
+    this.createShopButton();
+    this.createNavigationButton();
     this.createManagerSlots();
     this.setupInputScroll();
   }
@@ -1407,7 +1450,9 @@ export class MineScene extends Phaser.Scene {
       }
 
       const camera = this.cameras.main;
+      this.tweens.killTweensOf(camera);
       camera.scrollY = Phaser.Math.Clamp(camera.scrollY + deltaY * CAMERA_SCROLL_STEP, 0, maxScroll);
+      this.refreshNavigationButton();
     });
   }
 
@@ -2123,6 +2168,256 @@ export class MineScene extends Phaser.Scene {
       buttonBg.setAlpha(0.96);
       buttonIcon.setDisplaySize(MAP_BUTTON_ICON_SIZE, MAP_BUTTON_ICON_SIZE);
     });
+  }
+
+  private createAllManagerAbilitiesButton(): void {
+    const buttonLeft = ALL_MANAGER_ABILITIES_BUTTON_X - MAP_BUTTON_SIZE / 2;
+    const buttonTop = ALL_MANAGER_ABILITIES_BUTTON_Y - MAP_BUTTON_SIZE / 2;
+    const buttonBg = this.pinUi(
+      this.drawRoundedPanel(buttonLeft, buttonTop, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE, {
+        fill: 0x213b46,
+        fillAlpha: 0.98,
+        innerFill: 0x5c7c87,
+        innerAlpha: 0.22,
+        line: 0xf1c96b,
+        radius: 18
+      }).setDepth(PINNED_UI_PANEL_DEPTH + 1).setAlpha(0.72)
+    );
+    const iconConfigs: Array<{ area: ManagerArea; x: number; y: number }> = [
+      { area: "mineShaft", x: ALL_MANAGER_ABILITIES_BUTTON_X, y: ALL_MANAGER_ABILITIES_BUTTON_Y - 17 },
+      { area: "elevator", x: ALL_MANAGER_ABILITIES_BUTTON_X - 18, y: ALL_MANAGER_ABILITIES_BUTTON_Y + 16 },
+      { area: "warehouse", x: ALL_MANAGER_ABILITIES_BUTTON_X + 18, y: ALL_MANAGER_ABILITIES_BUTTON_Y + 16 }
+    ];
+    const icons = iconConfigs.map((config) =>
+      this.pinUi(
+        this.add
+          .image(config.x, config.y, getManagerPortraitKey(config.area, "junior"))
+          .setDisplaySize(ALL_MANAGER_ABILITIES_ICON_SIZE, ALL_MANAGER_ABILITIES_ICON_SIZE)
+          .setDepth(PINNED_UI_TEXT_DEPTH)
+          .setAlpha(0.58)
+      )
+    );
+    const buttonZone = this.pinUi(
+      this.add
+        .zone(ALL_MANAGER_ABILITIES_BUTTON_X, ALL_MANAGER_ABILITIES_BUTTON_Y, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: false })
+        .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
+    );
+
+    this.allManagerAbilitiesButton = {
+      background: buttonBg,
+      icons,
+      zone: buttonZone,
+      enabled: false
+    };
+
+    buttonZone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+
+        if (this.allManagerAbilitiesButton?.enabled !== true) {
+          return;
+        }
+
+        this.applyFrame(this.viewModel.activateAllManagerAbilities(), this.time.now);
+      }
+    );
+
+    buttonZone.on("pointerover", () => {
+      if (this.allManagerAbilitiesButton?.enabled !== true) {
+        return;
+      }
+
+      buttonBg.setAlpha(1);
+      icons.forEach((icon) => icon.setDisplaySize(ALL_MANAGER_ABILITIES_ICON_HOVER_SIZE, ALL_MANAGER_ABILITIES_ICON_HOVER_SIZE));
+    });
+
+    buttonZone.on("pointerout", () => {
+      const enabled = this.allManagerAbilitiesButton?.enabled === true;
+      buttonBg.setAlpha(enabled ? 0.96 : 0.72);
+      icons.forEach((icon) => icon.setDisplaySize(ALL_MANAGER_ABILITIES_ICON_SIZE, ALL_MANAGER_ABILITIES_ICON_SIZE));
+    });
+  }
+
+  private createShopButton(): void {
+    const buttonLeft = SHOP_BUTTON_X - MAP_BUTTON_SIZE / 2;
+    const buttonTop = SHOP_BUTTON_Y - MAP_BUTTON_SIZE / 2;
+    const buttonBg = this.pinUi(
+      this.drawRoundedPanel(buttonLeft, buttonTop, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE, {
+        fill: 0xf4cb7d,
+        fillAlpha: 0.98,
+        innerFill: 0xffdf9a,
+        innerAlpha: 0.52,
+        line: 0x613212,
+        radius: 18
+      }).setDepth(PINNED_UI_PANEL_DEPTH + 1).setAlpha(0.96)
+    );
+    const icon = this.pinUi(
+      this.add
+        .image(SHOP_BUTTON_X, SHOP_BUTTON_Y, "shop-icon")
+        .setDisplaySize(SHOP_ICON_SIZE, SHOP_ICON_SIZE)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    const buttonZone = this.pinUi(
+      this.add
+        .zone(SHOP_BUTTON_X, SHOP_BUTTON_Y, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
+    );
+
+    this.shopButton = {
+      background: buttonBg,
+      icon,
+      zone: buttonZone
+    };
+
+    buttonZone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        this.showShopSoonModal();
+      }
+    );
+
+    buttonZone.on("pointerover", () => {
+      buttonBg.setAlpha(1);
+      icon.setScale(1.05);
+    });
+
+    buttonZone.on("pointerout", () => {
+      buttonBg.setAlpha(0.96);
+      icon.setScale(1);
+    });
+  }
+
+  private createNavigationButton(): void {
+    const buttonLeft = NAVIGATION_BUTTON_X - MAP_BUTTON_SIZE / 2;
+    const buttonTop = NAVIGATION_BUTTON_Y - MAP_BUTTON_SIZE / 2;
+    const buttonBg = this.pinUi(
+      this.drawRoundedPanel(buttonLeft, buttonTop, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE, {
+        fill: 0xf4cb7d,
+        fillAlpha: 0.98,
+        innerFill: 0xffdf9a,
+        innerAlpha: 0.52,
+        line: 0x613212,
+        radius: 18
+      }).setDepth(PINNED_UI_PANEL_DEPTH + 1).setAlpha(0.96)
+    );
+    const icon = this.pinUi(
+      this.add
+        .image(NAVIGATION_BUTTON_X, NAVIGATION_BUTTON_Y, "navigation-arrow-icon")
+        .setDisplaySize(NAVIGATION_ARROW_ICON_SIZE, NAVIGATION_ARROW_ICON_SIZE)
+        .setDepth(PINNED_UI_TEXT_DEPTH)
+    );
+    const buttonZone = this.pinUi(
+      this.add
+        .zone(NAVIGATION_BUTTON_X, NAVIGATION_BUTTON_Y, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
+    );
+
+    this.navigationButton = {
+      background: buttonBg,
+      icon,
+      zone: buttonZone,
+      direction: "down"
+    };
+
+    buttonZone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        this.handleNavigationButtonClick();
+      }
+    );
+
+    buttonZone.on("pointerover", () => {
+      buttonBg.setAlpha(1);
+      icon.setScale(1.08);
+    });
+
+    buttonZone.on("pointerout", () => {
+      buttonBg.setAlpha(0.96);
+      icon.setScale(1);
+    });
+  }
+
+  private handleNavigationButtonClick(): void {
+    if (this.mapViewContainer !== undefined) {
+      return;
+    }
+
+    if (this.isSurfaceUpgradePanelVisible()) {
+      this.scrollToDeepestUnlockedMineShaft();
+    } else {
+      this.scrollCameraTo(0);
+    }
+  }
+
+  private scrollToDeepestUnlockedMineShaft(): void {
+    const state = this.latestState;
+
+    if (state === undefined) {
+      return;
+    }
+
+    const deepestUnlockedShaftId = getDeepestUnlockedShaftId(state, this.totalMineShafts);
+    const targetFocusY = this.getShaftY(MINE_SHAFT_BACK_WALL_Y, deepestUnlockedShaftId);
+    this.scrollCameraTo(targetFocusY - GAME_HEIGHT / 2);
+  }
+
+  private scrollCameraTo(targetScrollY: number): void {
+    const state = this.latestState;
+    const maxScroll = state === undefined ? 0 : this.getMaxCameraScroll(state);
+    const clampedTarget = Phaser.Math.Clamp(targetScrollY, 0, maxScroll);
+    const distance = Math.abs(this.cameras.main.scrollY - clampedTarget);
+
+    this.tweens.killTweensOf(this.cameras.main);
+
+    if (distance < 1) {
+      this.cameras.main.scrollY = clampedTarget;
+      this.refreshSurfaceSidebarVisibility();
+      this.refreshNavigationButton();
+      return;
+    }
+
+    this.tweens.add({
+      targets: this.cameras.main,
+      scrollY: clampedTarget,
+      duration: Phaser.Math.Clamp(distance * 0.52, 260, 900),
+      ease: "Cubic.easeInOut",
+      onUpdate: () => {
+        this.refreshSurfaceSidebarVisibility();
+        this.refreshNavigationButton();
+      },
+      onComplete: () => {
+        this.refreshSurfaceSidebarVisibility();
+        this.refreshNavigationButton();
+      }
+    });
+  }
+
+  private isSurfaceUpgradePanelVisible(): boolean {
+    return this.cameras.main.scrollY < SURFACE_SIDEBAR_HIDE_SCROLL_Y;
   }
 
   private openMapView(): void {
@@ -3515,6 +3810,62 @@ export class MineScene extends Phaser.Scene {
     );
   }
 
+  private showShopSoonModal(): void {
+    if (this.shopSoonModalObjects !== undefined) {
+      return;
+    }
+
+    const overlay = this.pinUi(
+      this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.68)
+        .setDepth(MAP_VIEW_DEPTH + 140)
+        .setInteractive()
+    );
+    const panelWidth = 460;
+    const panelHeight = 230;
+    const panelX = GAME_WIDTH / 2 - panelWidth / 2;
+    const panelY = GAME_HEIGHT / 2 - panelHeight / 2;
+    const panel = this.pinUi(this.add.graphics().setDepth(MAP_VIEW_DEPTH + 141));
+    panel.fillStyle(0x17212a, 0.98);
+    panel.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panel.lineStyle(2, 0xf1c96b, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+
+    const titleText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 42, "Shop", {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "28px",
+      fontStyle: "bold",
+      color: "#f6e8bb"
+    }).setOrigin(0.5).setDepth(MAP_VIEW_DEPTH + 142));
+    const icon = this.pinUi(
+      this.add.image(GAME_WIDTH / 2, panelY + 92, "shop-icon").setDisplaySize(SHOP_ICON_SIZE, SHOP_ICON_SIZE).setDepth(MAP_VIEW_DEPTH + 142)
+    );
+    const bodyText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 142, "Shop available soon.", {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "18px",
+      color: "#dcecf1"
+    }).setOrigin(0.5).setDepth(MAP_VIEW_DEPTH + 142));
+    const okButton = this.createModalButton(GAME_WIDTH / 2, panelY + 190, 150, 42, "OK", 0x386641, MAP_VIEW_DEPTH + 142);
+    const objects = [
+      overlay,
+      panel,
+      titleText,
+      icon,
+      bodyText,
+      ...okButton.objects
+    ];
+    const close = () => {
+      objects.forEach((obj) => obj.destroy());
+      this.shopSoonModalObjects = undefined;
+    };
+
+    this.shopSoonModalObjects = objects;
+
+    okButton.zone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      close();
+    });
+  }
+
   private createManagerSlots(): void {
     this.managerSlots = {
       elevator: this.createManagerSlot("elevator"),
@@ -3948,6 +4299,7 @@ export class MineScene extends Phaser.Scene {
 
     if (managerStateChanged || managerTimerChanged) {
       this.refreshManagerSlots(state);
+      this.refreshAllManagerAbilitiesButton(state);
       this.lastManagerSlotRefreshSecond = currentManagerSecond;
     }
 
@@ -3962,6 +4314,7 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.refreshSurfaceSidebarVisibility();
+    this.refreshNavigationButton();
     this.refreshMapView(state);
     this.activeBuyMode = buyMode;
     this.uiInitialized = true;
@@ -4090,6 +4443,42 @@ export class MineScene extends Phaser.Scene {
         slot.timerText.setText(locked ? `Unlock: Mine Lvl ${state.managers.unlockLevel}` : "Tap to hire");
         slot.abilityZone.disableInteractive();
       }
+    }
+  }
+
+  private refreshAllManagerAbilitiesButton(state: GameState): void {
+    if (this.allManagerAbilitiesButton === undefined) {
+      return;
+    }
+
+    const enabled = getReadyAssignedManagers(state).length > 0;
+    const alpha = enabled ? 0.96 : 0.72;
+    const tint = enabled ? 0xffffff : 0x7a6d63;
+
+    this.allManagerAbilitiesButton.enabled = enabled;
+    this.allManagerAbilitiesButton.background.setAlpha(alpha);
+    this.allManagerAbilitiesButton.icons.forEach((icon) => {
+      icon
+        .setAlpha(enabled ? 0.98 : 0.58)
+        .setTint(tint)
+        .setDisplaySize(ALL_MANAGER_ABILITIES_ICON_SIZE, ALL_MANAGER_ABILITIES_ICON_SIZE);
+    });
+
+    if (this.allManagerAbilitiesButton.zone.input) {
+      this.allManagerAbilitiesButton.zone.input.cursor = enabled ? "pointer" : "default";
+    }
+  }
+
+  private refreshNavigationButton(): void {
+    if (this.navigationButton === undefined) {
+      return;
+    }
+
+    const direction = this.isSurfaceUpgradePanelVisible() ? "down" : "up";
+
+    if (this.navigationButton.direction !== direction) {
+      this.navigationButton.direction = direction;
+      this.navigationButton.icon.setAngle(direction === "down" ? 0 : 180);
     }
   }
 
@@ -5830,6 +6219,16 @@ function getAssignedManagerForShaft(state: GameState, shaftId: number): ManagerS
   }
 
   return state.managers.ownedManagers.find((manager) => manager.id === assignedManagerId && manager.isOwned);
+}
+
+function getReadyAssignedManagers(state: GameState): ManagerState[] {
+  return state.managers.ownedManagers.filter(
+    (manager) =>
+      manager.isOwned &&
+      manager.isAssigned &&
+      !manager.isActive &&
+      manager.remainingCooldownTime <= EPSILON
+  );
 }
 
 function getDeepestUnlockedShaftId(state: GameState, totalMineShafts: number): number {

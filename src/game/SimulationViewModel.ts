@@ -151,6 +151,10 @@ export class SimulationViewModel {
     return this.frameFromEvents(this.simulation.activateManagerAbility(managerId));
   }
 
+  activateAllManagerAbilities(): SimulationFrame {
+    return this.frameFromEvents(this.simulation.activateAllManagerAbilities());
+  }
+
   unlockMineShaft(shaftId: number): SimulationFrame {
     return this.frameFromEvents(this.simulation.unlockMineShaft(shaftId));
   }

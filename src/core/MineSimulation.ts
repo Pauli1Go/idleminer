@@ -1299,6 +1299,26 @@ export class MineSimulation {
     return events;
   }
 
+  activateAllManagerAbilities(): SimulationEvent[] {
+    const readyManagerIds = this.ownedManagers
+      .filter(
+        (manager) =>
+          manager.isOwned &&
+          manager.isAssigned &&
+          !manager.isActive &&
+          manager.remainingCooldownTime <= EPSILON
+      )
+      .map((manager) => manager.id);
+
+    const events: SimulationEvent[] = [];
+
+    for (const managerId of readyManagerIds) {
+      events.push(...this.activateManagerAbility(managerId));
+    }
+
+    return events;
+  }
+
   upgradeMineShaft(shaftId: number, buyMode: UpgradeBuyMode = 1): SimulationEvent[] {
     const events: SimulationEvent[] = [];
     const shaft = this.getMineShaftById(shaftId);

@@ -351,6 +351,63 @@ test("Cooldown blocks reactivation", () => {
   assert.equal((failure as Extract<(typeof events)[number], { type: "actionFailed" }>).reason, "ability_on_cooldown");
 });
 
+test("Activating all manager abilities starts every ready assigned manager", () => {
+  const simulation = createSimulation(createUnlockedBalance({ startingMoney: 5000 }));
+
+  simulation.purchaseManager("mineShaft");
+  simulation.purchaseManager("elevator");
+  simulation.purchaseManager("warehouse");
+
+  const managers = simulation.getState().managers.ownedManagers;
+  const mineManagerId = managers.find((manager) => manager.area === "mineShaft")?.id;
+  const elevatorManagerId = managers.find((manager) => manager.area === "elevator")?.id;
+  const warehouseManagerId = managers.find((manager) => manager.area === "warehouse")?.id;
+
+  assert.ok(mineManagerId);
+  assert.ok(elevatorManagerId);
+  assert.ok(warehouseManagerId);
+
+  simulation.assignManager(mineManagerId, "mineShaft", 1);
+  simulation.assignManager(elevatorManagerId, "elevator");
+  simulation.assignManager(warehouseManagerId, "warehouse");
+
+  const events = simulation.activateAllManagerAbilities();
+  const activatedEvents = events.filter((event) => event.type === "managerAbilityActivated");
+  const assignedManagers = simulation.getState().managers.ownedManagers.filter((manager) => manager.isAssigned);
+
+  assert.equal(activatedEvents.length, 3);
+  assert.equal(assignedManagers.length, 3);
+  assert.equal(assignedManagers.every((manager) => manager.isActive), true);
+});
+
+test("Activating all manager abilities skips managers that are already active", () => {
+  const simulation = createSimulation(createUnlockedBalance({ startingMoney: 5000 }));
+
+  simulation.purchaseManager("mineShaft");
+  simulation.purchaseManager("elevator");
+  simulation.purchaseManager("warehouse");
+
+  const managers = simulation.getState().managers.ownedManagers;
+  const mineManagerId = managers.find((manager) => manager.area === "mineShaft")?.id;
+  const elevatorManagerId = managers.find((manager) => manager.area === "elevator")?.id;
+  const warehouseManagerId = managers.find((manager) => manager.area === "warehouse")?.id;
+
+  assert.ok(mineManagerId);
+  assert.ok(elevatorManagerId);
+  assert.ok(warehouseManagerId);
+
+  simulation.assignManager(mineManagerId, "mineShaft", 1);
+  simulation.assignManager(elevatorManagerId, "elevator");
+  simulation.assignManager(warehouseManagerId, "warehouse");
+  simulation.activateManagerAbility(mineManagerId);
+
+  const events = simulation.activateAllManagerAbilities();
+  const activatedEvents = events.filter((event) => event.type === "managerAbilityActivated");
+
+  assert.equal(activatedEvents.length, 2);
+  assert.equal(activatedEvents.some((event) => event.type === "managerAbilityActivated" && event.manager.id === mineManagerId), false);
+});
+
 test("Saving and loading managers preserves their state", () => {
   const simulation = createSimulation(createUnlockedBalance({ startingMoney: 5000, activeDurationSeconds: 0.2, cooldownSeconds: 0.4 }));
   simulation.purchaseManager("mineShaft");
