@@ -50,6 +50,8 @@ export type UpgradePurchaseResult =
     missingMoney: number;
   };
 
+const cumulativeUpgradeCostCache = new WeakMap<BalanceConfig, Map<string, number[]>>();
+
 export function getUpgradePreview(
   balance: BalanceConfig,
   target: UpgradeTarget,
@@ -74,32 +76,13 @@ export function getUpgradePreview(
     levelsToBuy = 0;
     totalCost = 0;
   } else if (typeof buyMode === "number") {
-    // Fixed amount mode (1x, 10x, 100x): Always calculate the cost for the requested number of levels, capped by maxLevel
     levelsToBuy = Math.min(buyMode, maxLevel - safeLevel);
-    for (let i = 0; i < levelsToBuy; i++) {
-      const stepStats = getStatsForTarget(balance, target, safeLevel + i, shaftId);
-      const stepCost = roundUpgradeCost(stepStats.upgradeCost * safeCostMultiplier);
-      totalCost = roundForState(totalCost + stepCost);
-    }
+    totalCost = getSteppedUpgradeCost(balance, target, safeLevel, levelsToBuy, safeCostMultiplier, shaftId);
   } else {
-    // "Max" mode: Find how many the player can actually afford, capped by maxLevel
     const purchaseLimit = Math.min(resolvePurchaseLimit(buyMode), maxLevel - safeLevel);
-    let moneyLeft = roundForState(Math.max(currentMoney, 0));
+    levelsToBuy = getAffordableLevelCount(balance, target, safeLevel, purchaseLimit, currentMoney, safeCostMultiplier, shaftId);
+    totalCost = getTotalUpgradeCost(balance, target, safeLevel, levelsToBuy, safeCostMultiplier, shaftId);
 
-    while (levelsToBuy < purchaseLimit) {
-      const stepStats = getStatsForTarget(balance, target, safeLevel + levelsToBuy, shaftId);
-      const stepCost = roundUpgradeCost(stepStats.upgradeCost * safeCostMultiplier);
-
-      if (moneyLeft + Number.EPSILON < stepCost) {
-        break;
-      }
-
-      moneyLeft = roundForState(moneyLeft - stepCost);
-      totalCost = roundForState(totalCost + stepCost);
-      levelsToBuy += 1;
-    }
-
-    // Default to 1 level preview if nothing can be afforded in "max" mode (unless maxed)
     if (levelsToBuy === 0 && !isMaxed) {
       levelsToBuy = 1;
       totalCost = firstLevelCost;
@@ -183,6 +166,105 @@ function getStatsForTarget(balance: BalanceConfig, target: UpgradeTarget, level:
     case "warehouse":
       return getWarehouseStats(balance, level);
   }
+}
+
+function getAffordableLevelCount(
+  balance: BalanceConfig,
+  target: UpgradeTarget,
+  currentLevel: number,
+  purchaseLimit: number,
+  currentMoney: number,
+  costMultiplier: number,
+  shaftId = 1
+): number {
+  const money = roundForState(Math.max(currentMoney, 0));
+  let low = 0;
+  let high = purchaseLimit;
+
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const cost = getTotalUpgradeCost(balance, target, currentLevel, mid, costMultiplier, shaftId);
+
+    if (money + Number.EPSILON >= cost) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return low;
+}
+
+function getTotalUpgradeCost(
+  balance: BalanceConfig,
+  target: UpgradeTarget,
+  currentLevel: number,
+  levelsToBuy: number,
+  costMultiplier: number,
+  shaftId = 1
+): number {
+  if (levelsToBuy <= 0) {
+    return 0;
+  }
+
+  const maxLevel = getMaxLevelForTarget(balance, target);
+  const safeLevel = Math.min(normalizeUpgradeLevel(currentLevel), maxLevel);
+  const targetLevel = Math.min(maxLevel, safeLevel + Math.max(0, Math.floor(levelsToBuy)));
+  const cumulativeCosts = getCumulativeUpgradeCosts(balance, target, costMultiplier, shaftId);
+
+  return roundForState(cumulativeCosts[targetLevel] - cumulativeCosts[safeLevel]);
+}
+
+function getSteppedUpgradeCost(
+  balance: BalanceConfig,
+  target: UpgradeTarget,
+  currentLevel: number,
+  levelsToBuy: number,
+  costMultiplier: number,
+  shaftId = 1
+): number {
+  let totalCost = 0;
+
+  for (let i = 0; i < levelsToBuy; i += 1) {
+    const stepStats = getStatsForTarget(balance, target, currentLevel + i, shaftId);
+    const stepCost = roundUpgradeCost(stepStats.upgradeCost * costMultiplier);
+    totalCost = roundForState(totalCost + stepCost);
+  }
+
+  return totalCost;
+}
+
+function getCumulativeUpgradeCosts(
+  balance: BalanceConfig,
+  target: UpgradeTarget,
+  costMultiplier: number,
+  shaftId = 1
+): number[] {
+  let balanceCache = cumulativeUpgradeCostCache.get(balance);
+
+  if (balanceCache === undefined) {
+    balanceCache = new Map();
+    cumulativeUpgradeCostCache.set(balance, balanceCache);
+  }
+
+  const maxLevel = getMaxLevelForTarget(balance, target);
+  const key = `${target}:${shaftId}:${costMultiplier}:${maxLevel}`;
+  const cached = balanceCache.get(key);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const cumulativeCosts = Array.from({ length: maxLevel + 1 }, () => 0);
+
+  for (let level = 1; level < maxLevel; level += 1) {
+    const stepStats = getStatsForTarget(balance, target, level, shaftId);
+    const stepCost = roundUpgradeCost(stepStats.upgradeCost * costMultiplier);
+    cumulativeCosts[level + 1] = roundForState(cumulativeCosts[level] + stepCost);
+  }
+
+  balanceCache.set(key, cumulativeCosts);
+  return cumulativeCosts;
 }
 
 function getMaxLevelForTarget(balance: BalanceConfig, target: UpgradeTarget): number {

@@ -128,6 +128,12 @@ export class MineSimulation {
   private accumulatorSeconds = 0;
   private eventSequence = 0;
   private timeSeconds = 0;
+  private upgradeStateCache:
+    | {
+        key: string;
+        upgrades: GameState["upgrades"];
+      }
+    | undefined;
   private money: number;
   private superCash: number;
   private activeMineId: MineId = DEFAULT_ACTIVE_MINE_ID;
@@ -1675,6 +1681,12 @@ export class MineSimulation {
   }
 
   private buildUpgradeState(buyMode: UpgradeBuyMode): GameState["upgrades"] {
+    const cacheKey = this.getUpgradeStateCacheKey(buyMode);
+
+    if (this.upgradeStateCache?.key === cacheKey) {
+      return this.upgradeStateCache.upgrades;
+    }
+
     const mineShaftUpgradeById: Record<number, GameState["upgrades"]["mineShaft"]> = {};
 
     for (const shaft of this.mineShafts) {
@@ -1717,7 +1729,7 @@ export class MineSimulation {
       this.getUpgradeCostMultiplierForArea("warehouse")
     );
 
-    return {
+    const upgrades = {
       mineShaft: mineShaftUpgradeById[1],
       mineShafts: mineShaftUpgradeById,
       elevator: {
@@ -1741,6 +1753,35 @@ export class MineSimulation {
         previewStats: this.applyMineMultiplierToWarehouseStats(warehouseUpgrade.previewStats as WarehouseStats)
       }
     };
+
+    this.upgradeStateCache = {
+      key: cacheKey,
+      upgrades
+    };
+
+    return upgrades;
+  }
+
+  private getUpgradeStateCacheKey(buyMode: UpgradeBuyMode): string {
+    const mine = this.getActiveMine();
+    const shaftParts = this.mineShafts.map((shaft) => [
+      shaft.shaftId,
+      shaft.stats.level,
+      shaft.isUnlocked ? 1 : 0,
+      this.getUpgradeCostMultiplierForMineShaft(shaft.shaftId)
+    ].join(":"));
+
+    return [
+      buyMode,
+      this.activeMineId,
+      this.money,
+      mine.mineMultiplier,
+      this.elevator.stats.level,
+      this.getUpgradeCostMultiplierForArea("elevator"),
+      this.warehouse.stats.level,
+      this.getUpgradeCostMultiplierForArea("warehouse"),
+      ...shaftParts
+    ].join("|");
   }
 
   private getGlobalTotals(): ResourceTotalsState {
