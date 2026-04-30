@@ -1,4 +1,4 @@
-<h1 align="center">Idle Miner Core Prototype</h1>
+<h1 align="center">Idle Miner</h1>
 
 <p align="center">
   A small browser idle game where your miners dig, your elevator hauls, your warehouse sells,
@@ -14,7 +14,6 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.8-3178c6?style=for-the-badge&logo=typescript&logoColor=white">
   <img alt="Phaser" src="https://img.shields.io/badge/Phaser-3.90-8a2be2?style=for-the-badge">
   <img alt="Vite" src="https://img.shields.io/badge/Vite-6.3-646cff?style=for-the-badge&logo=vite&logoColor=white">
-  <img alt="Status" src="https://img.shields.io/badge/status-prototype-f5a623?style=for-the-badge">
 </p>
 
 ![Idle Miner mine overview](screenshots/mine.png)
