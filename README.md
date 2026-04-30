@@ -36,7 +36,7 @@ The game focuses on the satisfying basics:
 | --- | --- |
 | ![Mine overview](screenshots/mine.png) | ![Deeper mine view](screenshots/mine_deep.png) |
 
-| Map overview of the different mines |
+| Map overview of the different Mines |
 | --- |
 | ![Prototype overview screen](screenshots/map.png) |
 
