@@ -89,7 +89,7 @@ export function getUpgradePreview(
     }
   }
 
-  const affordable = !isMaxed && currentMoney + Number.EPSILON >= totalCost && (typeof buyMode !== "number" || levelsToBuy === buyMode);
+  const affordable = !isMaxed && currentMoney + Number.EPSILON >= totalCost;
   const targetLevel = safeLevel + levelsToBuy;
   const previewStats = getStatsForTarget(balance, target, targetLevel, shaftId);
 
