@@ -315,6 +315,41 @@
     "senior": 0.3,
     "executive": 0.1
   },
+  "boosts": {
+    "dailyFreeCheapBoostReset": "localCalendarDay",
+    "purchases": {
+      "cheap": {
+        "cost": 500,
+        "drawTable": [
+          { "id": "cheap_2x_30m", "multiplier": 2, "durationSeconds": 1800, "weight": 30 },
+          { "id": "cheap_2x_1h", "multiplier": 2, "durationSeconds": 3600, "weight": 24 },
+          { "id": "cheap_3x_30m", "multiplier": 3, "durationSeconds": 1800, "weight": 16 },
+          { "id": "cheap_3x_1h", "multiplier": 3, "durationSeconds": 3600, "weight": 12 },
+          { "id": "cheap_4x_30m", "multiplier": 4, "durationSeconds": 1800, "weight": 8 },
+          { "id": "cheap_5x_30m", "multiplier": 5, "durationSeconds": 1800, "weight": 5 },
+          { "id": "cheap_8x_15m", "multiplier": 8, "durationSeconds": 900, "weight": 3 },
+          { "id": "cheap_10x_10m", "multiplier": 10, "durationSeconds": 600, "weight": 1.5 },
+          { "id": "cheap_20x_5m", "multiplier": 20, "durationSeconds": 300, "weight": 0.5 }
+        ]
+      },
+      "expensive": {
+        "cost": 5000,
+        "drawTable": [
+          { "id": "expensive_5x_1h", "multiplier": 5, "durationSeconds": 3600, "weight": 24 },
+          { "id": "expensive_10x_45m", "multiplier": 10, "durationSeconds": 2700, "weight": 20 },
+          { "id": "expensive_20x_30m", "multiplier": 20, "durationSeconds": 1800, "weight": 16 },
+          { "id": "expensive_50x_20m", "multiplier": 50, "durationSeconds": 1200, "weight": 12 },
+          { "id": "expensive_100x_15m", "multiplier": 100, "durationSeconds": 900, "weight": 9 },
+          { "id": "expensive_250x_10m", "multiplier": 250, "durationSeconds": 600, "weight": 7 },
+          { "id": "expensive_500x_10m", "multiplier": 500, "durationSeconds": 600, "weight": 5 },
+          { "id": "expensive_1000x_8m", "multiplier": 1000, "durationSeconds": 480, "weight": 3 },
+          { "id": "expensive_2000x_5m", "multiplier": 2000, "durationSeconds": 300, "weight": 2 },
+          { "id": "expensive_3000x_5m", "multiplier": 3000, "durationSeconds": 300, "weight": 1.5 },
+          { "id": "expensive_5000x_5m", "multiplier": 5000, "durationSeconds": 300, "weight": 0.5 }
+        ]
+      }
+    }
+  },
   "mineShaftBlockades": {
     "enabled": true,
     "blockadeEveryShafts": 5,

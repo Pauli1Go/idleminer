@@ -1,5 +1,6 @@
 import type { ManagerState } from "./managers.ts";
 import type { ManagerArea } from "./balance.ts";
+import type { BoostPurchaseTier, IncomeBoostRuntimeState } from "./boosts.ts";
 import type { ElevatorStats, MineShaftStats, WarehouseStats } from "./balance.ts";
 import type { UpgradeTarget } from "./upgrades.ts";
 import type { StorageId } from "./types.ts";
@@ -18,7 +19,9 @@ export type SimulationCommandName =
   | "activateManagerAbility"
   | "removeDepthBlockade"
   | "skipDepthBlockade"
-  | "collectMineOfflineCash";
+  | "collectMineOfflineCash"
+  | "purchaseBoost"
+  | "activateBoost";
 
 export type SimulationCommandRejectionReason =
   | "busy"
@@ -54,7 +57,11 @@ export type SimulationActionFailureReason =
   | "invalid_mine"
   | "mine_locked"
   | "mine_already_unlocked"
-  | "max_prestige_reached";
+  | "max_prestige_reached"
+  | "invalid_boost_tier"
+  | "boost_already_active"
+  | "no_boost_available"
+  | "boost_multiplier_mismatch";
 
 export type SimulationEvent =
   | {
@@ -175,7 +182,29 @@ export type SimulationEvent =
       amount: number;
       previousSuperCash: number;
       currentSuperCash: number;
-      source: "depthBlockadeSkip";
+      source: "depthBlockadeSkip" | "boostShop";
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "incomeBoostPurchased";
+      tier: BoostPurchaseTier;
+      cost: number;
+      usedFreeSpin: boolean;
+      boost: IncomeBoostRuntimeState;
+      currentSuperCash: number;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "incomeBoostActivated";
+      boost: IncomeBoostRuntimeState;
+    }
+  | {
+      sequence: number;
+      timeSeconds: number;
+      type: "incomeBoostExpired";
+      boost: IncomeBoostRuntimeState;
     }
   | {
       sequence: number;

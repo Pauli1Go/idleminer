@@ -7,6 +7,8 @@ import type {
   SimulationEvent,
   UpgradeBuyMode,
   UpgradeTarget,
+  BoostPurchaseTier,
+  PurchaseBoostOptions,
   ManagerArea,
   ManagerAbilityType,
   ManagerRank,
@@ -133,6 +135,26 @@ export class SimulationViewModel {
 
   purchaseWarehouseUpgrade(): SimulationFrame {
     return this.frameFromEvents(this.simulation.purchaseUpgrade("warehouse", this.buyMode));
+  }
+
+  purchaseBoost(tier: BoostPurchaseTier, options: PurchaseBoostOptions = {}): SimulationFrame {
+    return this.frameFromEvents(this.simulation.purchaseBoost(tier, options));
+  }
+
+  purchaseCheapBoost(options: PurchaseBoostOptions = {}): SimulationFrame {
+    return this.frameFromEvents(this.simulation.purchaseCheapBoost(options));
+  }
+
+  purchaseExpensiveBoost(options: PurchaseBoostOptions = {}): SimulationFrame {
+    return this.frameFromEvents(this.simulation.purchaseExpensiveBoost(options));
+  }
+
+  activateNextIncomeBoost(): SimulationFrame {
+    return this.frameFromEvents(this.simulation.activateNextIncomeBoost());
+  }
+
+  activateIncomeBoost(instanceId?: string): SimulationFrame {
+    return this.frameFromEvents(this.simulation.activateIncomeBoost(instanceId));
   }
 
   purchaseManager(area: ManagerArea): SimulationFrame {

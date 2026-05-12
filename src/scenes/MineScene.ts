@@ -24,6 +24,7 @@ import navigationArrowIconUrl from "../../assets/ui/navigation_arrow_icon.png";
 import oreIconUrl from "../../assets/ui/ore_icon.png";
 import shopIconUrl from "../../assets/ui/shop_icon.png";
 import superCashIconUrl from "../../assets/ui/supercash_icon.png";
+import boostShopPanelBgUrl from "../../assets/ui/boost_shop_panel_bg.png";
 import goldOreIconUrl from "../../assets/other mines/gold/ui/ore_icon.png";
 import rubyOreIconUrl from "../../assets/other mines/ruby/ui/ore_icon.png";
 import diamondOreIconUrl from "../../assets/other mines/diamond/ui/ore_icon.png";
@@ -75,7 +76,10 @@ import {
   getValidAbilityTypesForArea,
   managerRanks,
   type BalanceConfig,
+  type BoostDefinition,
+  type BoostPurchaseTier,
   type GameState,
+  type IncomeBoostRuntimeState,
   type ManagerAbilityType,
   type ManagerArea,
   type ManagerRank,
@@ -229,6 +233,18 @@ const ALL_MANAGER_ABILITIES_ICON_HOVER_SIZE = 36;
 const SHOP_BUTTON_X = MAP_BUTTON_X;
 const SHOP_BUTTON_Y = ALL_MANAGER_ABILITIES_BUTTON_Y - MAP_BUTTON_SIZE - MONEY_PANEL_GAP;
 const SHOP_ICON_SIZE = 54;
+const BOOST_SLOT_X = WAREHOUSE_BUILDING_X - 148;
+const BOOST_SLOT_Y = WAREHOUSE_BUILDING_Y + 34;
+const BOOST_SLOT_WIDTH = 118;
+const BOOST_SLOT_HEIGHT = 118;
+const BOOST_SLOT_TOKEN_RADIUS = 30;
+const BOOST_SHOP_PANEL_WIDTH = 790;
+const BOOST_SHOP_PANEL_HEIGHT = 486;
+const BOOST_SHOP_DEPTH = MAP_VIEW_DEPTH + 140;
+const BOOST_SHOP_OFFER_WIDTH = 310;
+const BOOST_SHOP_OFFER_HEIGHT = 276;
+const BOOST_INVENTORY_PANEL_WIDTH = 660;
+const BOOST_INVENTORY_PANEL_HEIGHT = 520;
 const NAVIGATION_ARROW_ICON_SIZE = 54;
 const NAVIGATION_BUTTON_X = MAP_BUTTON_X;
 const NAVIGATION_BUTTON_Y = SHOP_BUTTON_Y - MAP_BUTTON_SIZE - MONEY_PANEL_GAP;
@@ -284,7 +300,7 @@ const MANAGER_ENTRY_GAP_X = 18;
 const MANAGER_ENTRY_GAP_Y = 8;
 
 const managerSlotLayout = {
-  warehouse: { x: 18, y: 226, label: "Warehouse" },
+  warehouse: { x: 18, y: 240, label: "Warehouse" },
   elevator: { x: 526, y: 72, label: "Elevator" }
 } satisfies Record<"warehouse" | "elevator", { x: number; y: number; label: string }>;
 
@@ -661,6 +677,7 @@ const coreAssetManifest = {
   "ore-icon": oreIconUrl,
   "shop-icon": shopIconUrl,
   "supercash-icon": superCashIconUrl,
+  "boost-shop-panel-bg": boostShopPanelBgUrl,
   "ore-icon-coal": oreIconUrl,
   "ore-icon-gold": goldOreIconUrl,
   "ore-icon-ruby": rubyOreIconUrl,
@@ -798,6 +815,7 @@ interface NavigationButtonUi {
   icon: Phaser.GameObjects.Image;
   zone: Phaser.GameObjects.Zone;
   direction: "up" | "down";
+  centerY: number;
 }
 
 interface MapMineAreaUi {
@@ -868,7 +886,9 @@ type TutorialStepId =
   | "managerAssign"
   | "managerOtherAreas"
   | "managerAbility"
-  | "managerAllBoost";
+  | "managerAllBoost"
+  | "boostShopUnlock"
+  | "boostInventoryActivate";
 
 type TutorialBlockingActionStep = Extract<TutorialStepId, "manualMine" | "manualElevator" | "manualWarehouse">;
 
@@ -993,6 +1013,25 @@ interface CurrencyPanelUi {
   text: Phaser.GameObjects.Text;
 }
 
+interface BoostSlotUi {
+  frame: Phaser.GameObjects.Graphics;
+  token: Phaser.GameObjects.Graphics;
+  labelText: Phaser.GameObjects.Text;
+  multiplierText: Phaser.GameObjects.Text;
+  timerText: Phaser.GameObjects.Text;
+  queueText: Phaser.GameObjects.Text;
+  zone: Phaser.GameObjects.Zone;
+  activeInstanceId: string | null;
+  styleKey: string;
+}
+
+interface BoostInventoryStack {
+  key: string;
+  multiplier: number;
+  durationSeconds: number;
+  boosts: IncomeBoostRuntimeState[];
+}
+
 interface ScreenPoint {
   x: number;
   y: number;
@@ -1037,6 +1076,10 @@ export class MineScene extends Phaser.Scene {
   private managerSlots!: Record<"warehouse" | "elevator", ManagerSlotUi>;
   private allManagerAbilitiesButton: AllManagerAbilitiesButtonUi | undefined;
   private shopButton: ShopButtonUi | undefined;
+  private boostSlot: BoostSlotUi | undefined;
+  private activeBoostPulseTween: Phaser.Tweens.Tween | undefined;
+  private boostPurchaseAnimationActive = false;
+  private boostModalMode: "shop" | "inventory" | undefined;
   private navigationButton: NavigationButtonUi | undefined;
   private shopSoonModalObjects: Phaser.GameObjects.GameObject[] | undefined;
   private saveRepository?: SaveGameRepository;
@@ -1070,6 +1113,7 @@ export class MineScene extends Phaser.Scene {
   private shaftRouteFeedbackById: Record<number, ShaftRouteFeedback | undefined> = {};
   private lastManagerSlotRefreshSecond = -1;
   private lastManagerPanelRefreshSecond = -1;
+  private lastBoostSlotRefreshSecond = -1;
   private uiInitialized = false;
   private activeBuyMode: UpgradeBuyMode = 1;
   private activeManagerAbilityTab: ManagerAbilityType | "all" = "all";
@@ -1082,6 +1126,7 @@ export class MineScene extends Phaser.Scene {
   private activeSuperCashAnimationTweens = 0;
   private activeSuperCashAnimationIcons = new Set<Phaser.GameObjects.Image>();
   private tutorialOverlay: TutorialOverlayUi | undefined;
+  private hasTutorialProgressRecord = false;
   private tutorialProgressIndex = 0;
   private tutorialCompleted = false;
   private tutorialPendingActionStep: TutorialBlockingActionStep | null = null;
@@ -1089,6 +1134,11 @@ export class MineScene extends Phaser.Scene {
   private tutorialCompletionPending = false;
   private managerBoostHintShown = false;
   private managerBoostHintActive = false;
+  private boostTutorialCompleted = false;
+  private boostTutorialStep: "shop" | "inventory" = "shop";
+  private boostTutorialActive = false;
+  private boostTutorialInventoryActivateTarget: Phaser.Geom.Rectangle | undefined;
+  private boostTutorialInventoryInstanceId: string | undefined;
   private readonly hasExistingSaveGame: boolean;
 
   constructor(balance: BalanceConfig, saveRepository?: SaveGameRepository) {
@@ -1104,7 +1154,7 @@ export class MineScene extends Phaser.Scene {
     });
     this.loadTutorialProgress();
 
-    if (this.hasExistingSaveGame) {
+    if (this.hasExistingSaveGame && !this.hasTutorialProgressRecord) {
       this.tutorialCompleted = true;
       this.tutorialProgressIndex = tutorialStepOrder.length;
       this.tutorialManagerUnlockAcknowledged = true;
@@ -1326,6 +1376,76 @@ export class MineScene extends Phaser.Scene {
       .text(310, 78, "", feedbackTextStyle(22, "#f8dc75"))
       .setOrigin(0.5)
       .setVisible(false);
+
+    this.createBoostSlot();
+  }
+
+  private createBoostSlot(): void {
+    const frame = this.add.graphics().setDepth(UI_PANEL_DEPTH + 2);
+    const token = this.add.graphics().setDepth(UI_PANEL_DEPTH + 3);
+    const labelText = this.add
+      .text(BOOST_SLOT_X, BOOST_SLOT_Y - 35, "BOOST", smallUiTextStyle(11, "#f7e2a4"))
+      .setOrigin(0.5)
+      .setDepth(UI_TEXT_DEPTH + 3);
+    const multiplierText = this.add
+      .text(BOOST_SLOT_X, BOOST_SLOT_Y - 6, "", {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: "19px",
+        fontStyle: "900",
+        color: "#ffffff",
+        stroke: "#261a0f",
+        strokeThickness: 4
+      })
+      .setOrigin(0.5)
+      .setDepth(UI_TEXT_DEPTH + 4);
+    const timerText = this.add
+      .text(BOOST_SLOT_X, BOOST_SLOT_Y + 49, "", smallUiTextStyle(11, "#f9f0cf"))
+      .setOrigin(0.5)
+      .setDepth(UI_TEXT_DEPTH + 4);
+    const queueText = this.add
+      .text(BOOST_SLOT_X, BOOST_SLOT_Y + 45, "", smallUiTextStyle(9, "#bdd2d8"))
+      .setOrigin(0.5)
+      .setDepth(UI_TEXT_DEPTH + 4);
+    const zone = this.add
+      .zone(BOOST_SLOT_X, BOOST_SLOT_Y, BOOST_SLOT_WIDTH, BOOST_SLOT_HEIGHT)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(UI_INTERACTIVE_DEPTH + 4);
+
+    this.boostSlot = {
+      frame,
+      token,
+      labelText,
+      multiplierText,
+      timerText,
+      queueText,
+      zone,
+      activeInstanceId: null,
+      styleKey: "empty"
+    };
+
+    zone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        this.showBoostInventoryModal();
+      }
+    );
+
+    zone.on("pointerover", () => {
+      frame.setAlpha(1);
+      token.setAlpha(1);
+    });
+
+    zone.on("pointerout", () => {
+      frame.setAlpha(0.94);
+      token.setAlpha(0.98);
+    });
   }
 
   private createElevator(): void {
@@ -2357,7 +2477,7 @@ export class MineScene extends Phaser.Scene {
         event: Phaser.Types.Input.EventData
       ) => {
         event.stopPropagation();
-        this.showShopSoonModal();
+        this.showBoostShopModal();
       }
     );
 
@@ -2373,27 +2493,18 @@ export class MineScene extends Phaser.Scene {
   }
 
   private createNavigationButton(): void {
-    const buttonLeft = NAVIGATION_BUTTON_X - MAP_BUTTON_SIZE / 2;
-    const buttonTop = NAVIGATION_BUTTON_Y - MAP_BUTTON_SIZE / 2;
-    const buttonBg = this.pinUi(
-      this.drawRoundedPanel(buttonLeft, buttonTop, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE, {
-        fill: 0xf4cb7d,
-        fillAlpha: 0.98,
-        innerFill: 0xffdf9a,
-        innerAlpha: 0.52,
-        line: 0x613212,
-        radius: 18
-      }).setDepth(PINNED_UI_PANEL_DEPTH + 1).setAlpha(0.96)
-    );
+    const initialY = this.getNavigationButtonY(this.latestState);
+    const buttonBg = this.pinUi(this.add.graphics().setDepth(PINNED_UI_PANEL_DEPTH + 1).setAlpha(0.96));
+    this.paintNavigationButtonFrame(buttonBg, initialY);
     const icon = this.pinUi(
       this.add
-        .image(NAVIGATION_BUTTON_X, NAVIGATION_BUTTON_Y, "navigation-arrow-icon")
+        .image(NAVIGATION_BUTTON_X, initialY, "navigation-arrow-icon")
         .setDisplaySize(NAVIGATION_ARROW_ICON_SIZE, NAVIGATION_ARROW_ICON_SIZE)
         .setDepth(PINNED_UI_TEXT_DEPTH)
     );
     const buttonZone = this.pinUi(
       this.add
-        .zone(NAVIGATION_BUTTON_X, NAVIGATION_BUTTON_Y, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE)
+        .zone(NAVIGATION_BUTTON_X, initialY, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
         .setDepth(PINNED_UI_INTERACTIVE_DEPTH)
@@ -2403,7 +2514,8 @@ export class MineScene extends Phaser.Scene {
       background: buttonBg,
       icon,
       zone: buttonZone,
-      direction: "down"
+      direction: "down",
+      centerY: initialY
     };
 
     buttonZone.on(
@@ -3331,7 +3443,11 @@ export class MineScene extends Phaser.Scene {
 
   private isSuperCashVisible(state: GameState | undefined): boolean {
     const hasActiveBlockadeTimer = Object.values(state?.blockades ?? {}).some((blockade) => blockade.isRemoving && !blockade.isRemoved);
-    return IS_DEBUG || (state?.superCash ?? 0) > 0 || hasActiveBlockadeTimer;
+    return IS_DEBUG || state?.hasEarnedSuperCash === true || hasActiveBlockadeTimer;
+  }
+
+  private areBoostFeaturesUnlocked(state: GameState | undefined): boolean {
+    return IS_DEBUG || state?.hasEarnedSuperCash === true;
   }
 
   private setCurrencyPanelVisible(panel: CurrencyPanelUi | undefined, visible: boolean): void {
@@ -3878,60 +3994,941 @@ export class MineScene extends Phaser.Scene {
     );
   }
 
-  private showShopSoonModal(): void {
+  private showBoostShopModal(): void {
     if (this.shopSoonModalObjects !== undefined) {
       return;
     }
 
+    const state = this.latestState ?? this.viewModel.getInitialFrame().state;
+    if (!this.areBoostFeaturesUnlocked(state)) {
+      return;
+    }
     const overlay = this.pinUi(
       this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.68)
-        .setDepth(MAP_VIEW_DEPTH + 140)
+        .setDepth(BOOST_SHOP_DEPTH)
         .setInteractive()
     );
-    const panelWidth = 460;
-    const panelHeight = 230;
-    const panelX = GAME_WIDTH / 2 - panelWidth / 2;
-    const panelY = GAME_HEIGHT / 2 - panelHeight / 2;
-    const panel = this.pinUi(this.add.graphics().setDepth(MAP_VIEW_DEPTH + 141));
-    panel.fillStyle(0x17212a, 0.98);
-    panel.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
-    panel.lineStyle(2, 0xf1c96b, 1);
-    panel.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    const panelX = GAME_WIDTH / 2 - BOOST_SHOP_PANEL_WIDTH / 2;
+    const panelY = GAME_HEIGHT / 2 - BOOST_SHOP_PANEL_HEIGHT / 2;
+    const panelImage = this.pinUi(
+      this.add
+        .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "boost-shop-panel-bg")
+        .setDisplaySize(BOOST_SHOP_PANEL_WIDTH, BOOST_SHOP_PANEL_HEIGHT)
+        .setDepth(BOOST_SHOP_DEPTH + 1)
+    );
+    const panelVignette = this.pinUi(this.add.graphics().setDepth(BOOST_SHOP_DEPTH + 2));
+    panelVignette.fillStyle(0x08141a, 0.32);
+    panelVignette.fillRoundedRect(panelX + 18, panelY + 18, BOOST_SHOP_PANEL_WIDTH - 36, BOOST_SHOP_PANEL_HEIGHT - 36, 18);
+    panelVignette.lineStyle(2, 0xf4cf7a, 0.9);
+    panelVignette.strokeRoundedRect(panelX + 18, panelY + 18, BOOST_SHOP_PANEL_WIDTH - 36, BOOST_SHOP_PANEL_HEIGHT - 36, 18);
+    const panelZone = this.pinUi(
+      this.add.zone(GAME_WIDTH / 2, GAME_HEIGHT / 2, BOOST_SHOP_PANEL_WIDTH, BOOST_SHOP_PANEL_HEIGHT)
+        .setOrigin(0.5)
+        .setInteractive()
+        .setDepth(BOOST_SHOP_DEPTH + 3)
+    );
 
-    const titleText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 42, "Shop", {
+    const titleText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 48, "Boost Shop", {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "34px",
+      fontStyle: "bold",
+      color: "#fff1bd",
+      stroke: "#3d230f",
+      strokeThickness: 5
+    }).setOrigin(0.5).setDepth(BOOST_SHOP_DEPTH + 4));
+    const superCashPill = this.pinUi(this.drawRoundedPanel(panelX + BOOST_SHOP_PANEL_WIDTH - 214, panelY + 34, 146, 38, {
+      fill: 0x17323b,
+      fillAlpha: 0.95,
+      innerFill: 0x24505d,
+      innerAlpha: 0.52,
+      line: 0xf2ca73,
+      radius: 14
+    }).setDepth(BOOST_SHOP_DEPTH + 3));
+    const superCashIcon = this.pinUi(
+      this.add.image(panelX + BOOST_SHOP_PANEL_WIDTH - 190, panelY + 53, "supercash-icon")
+        .setDisplaySize(31, 31)
+        .setDepth(BOOST_SHOP_DEPTH + 5)
+    );
+    const superCashText = this.pinUi(this.add.text(panelX + BOOST_SHOP_PANEL_WIDTH - 121, panelY + 53, formatSuperCash(state.superCash), {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "19px",
+      fontStyle: "bold",
+      color: "#fff8de"
+    }).setOrigin(0.5).setDepth(BOOST_SHOP_DEPTH + 5));
+    fitTextToWidth(superCashText, 84, [19, 18, 16, 14, 12, 10]);
+
+    const closeButton = this.createModalButton(panelX + BOOST_SHOP_PANEL_WIDTH - 42, panelY + 54, 34, 34, "X", 0x5c6670, BOOST_SHOP_DEPTH + 4);
+    const cheapOffer = this.createBoostShopOffer(
+      "cheap",
+      state,
+      panelX + 76,
+      panelY + 118,
+      BOOST_SHOP_OFFER_WIDTH,
+      BOOST_SHOP_OFFER_HEIGHT,
+      BOOST_SHOP_DEPTH + 4
+    );
+    const expensiveOffer = this.createBoostShopOffer(
+      "expensive",
+      state,
+      panelX + BOOST_SHOP_PANEL_WIDTH - 76 - BOOST_SHOP_OFFER_WIDTH,
+      panelY + 118,
+      BOOST_SHOP_OFFER_WIDTH,
+      BOOST_SHOP_OFFER_HEIGHT,
+      BOOST_SHOP_DEPTH + 4
+    );
+
+    const objects = [
+      overlay,
+      panelImage,
+      panelVignette,
+      panelZone,
+      titleText,
+      superCashPill,
+      superCashIcon,
+      superCashText,
+      ...closeButton.objects,
+      ...cheapOffer.objects,
+      ...expensiveOffer.objects
+    ];
+
+    this.shopSoonModalObjects = objects;
+    this.boostModalMode = "shop";
+
+    overlay.on("pointerdown", () => {
+      this.closeBoostShopModal();
+    });
+    panelZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+    });
+    closeButton.zone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.closeBoostShopModal();
+    });
+  }
+
+  private closeBoostShopModal(): void {
+    if (this.shopSoonModalObjects === undefined) {
+      return;
+    }
+
+    this.shopSoonModalObjects.forEach((obj) => obj.destroy());
+    this.shopSoonModalObjects = undefined;
+    this.boostModalMode = undefined;
+  }
+
+  private refreshBoostShopModal(): void {
+    if (this.shopSoonModalObjects === undefined) {
+      return;
+    }
+
+    this.closeBoostShopModal();
+    this.showBoostShopModal();
+  }
+
+  private showBoostInventoryModal(): void {
+    if (this.shopSoonModalObjects !== undefined) {
+      return;
+    }
+
+    const state = this.latestState ?? this.viewModel.getInitialFrame().state;
+    if (!this.areBoostFeaturesUnlocked(state)) {
+      return;
+    }
+
+    this.boostTutorialInventoryActivateTarget = undefined;
+    this.boostTutorialInventoryInstanceId = undefined;
+
+    const panelX = GAME_WIDTH / 2 - BOOST_INVENTORY_PANEL_WIDTH / 2;
+    const panelY = GAME_HEIGHT / 2 - BOOST_INVENTORY_PANEL_HEIGHT / 2;
+    const overlay = this.pinUi(
+      this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.64)
+        .setDepth(BOOST_SHOP_DEPTH)
+        .setInteractive()
+    );
+    const panel = this.pinUi(this.add.graphics().setDepth(BOOST_SHOP_DEPTH + 1));
+    panel.fillStyle(0x10242c, 0.98);
+    panel.fillRoundedRect(panelX, panelY, BOOST_INVENTORY_PANEL_WIDTH, BOOST_INVENTORY_PANEL_HEIGHT, 18);
+    panel.fillStyle(0xf1c96b, 0.08);
+    panel.fillRoundedRect(panelX + 8, panelY + 8, BOOST_INVENTORY_PANEL_WIDTH - 16, BOOST_INVENTORY_PANEL_HEIGHT - 16, 14);
+    panel.lineStyle(2, 0xf4cf7a, 0.92);
+    panel.strokeRoundedRect(panelX + 0.75, panelY + 0.75, BOOST_INVENTORY_PANEL_WIDTH - 1.5, BOOST_INVENTORY_PANEL_HEIGHT - 1.5, 18);
+    const panelZone = this.pinUi(
+      this.add.zone(GAME_WIDTH / 2, GAME_HEIGHT / 2, BOOST_INVENTORY_PANEL_WIDTH, BOOST_INVENTORY_PANEL_HEIGHT)
+        .setOrigin(0.5)
+        .setInteractive()
+        .setDepth(BOOST_SHOP_DEPTH + 2)
+    );
+    const titleText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 40, "Boost Inventory", {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "30px",
+      fontStyle: "bold",
+      color: "#fff1bd",
+      stroke: "#3d230f",
+      strokeThickness: 4
+    }).setOrigin(0.5).setDepth(BOOST_SHOP_DEPTH + 4));
+    const closeButton = this.createModalButton(panelX + BOOST_INVENTORY_PANEL_WIDTH - 38, panelY + 40, 34, 34, "X", 0x5c6670, BOOST_SHOP_DEPTH + 5);
+    const shopButton = this.createModalButton(panelX + 84, panelY + BOOST_INVENTORY_PANEL_HEIGHT - 38, 118, 38, "Shop", 0x386641, BOOST_SHOP_DEPTH + 5);
+    const objects: Phaser.GameObjects.GameObject[] = [
+      overlay,
+      panel,
+      panelZone,
+      titleText,
+      ...closeButton.objects,
+      ...shopButton.objects
+    ];
+
+    const activeBoost = state.boosts.activeBoost;
+    const activePanel = this.pinUi(this.add.graphics().setDepth(BOOST_SHOP_DEPTH + 3));
+    activePanel.fillStyle(0x071015, 0.52);
+    activePanel.fillRoundedRect(panelX + 30, panelY + 74, BOOST_INVENTORY_PANEL_WIDTH - 60, 78, 12);
+    activePanel.lineStyle(1.5, activeBoost === null ? 0x8d989d : getBoostVisualStyle(activeBoost.multiplier).line, activeBoost === null ? 0.42 : 0.82);
+    activePanel.strokeRoundedRect(panelX + 30.75, panelY + 74.75, BOOST_INVENTORY_PANEL_WIDTH - 61.5, 76.5, 12);
+    objects.push(activePanel);
+
+    if (activeBoost === null) {
+      const emptyActiveText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 113, "No active boost", smallUiTextStyle(16, "#bdd2d8"))
+        .setOrigin(0.5)
+        .setDepth(BOOST_SHOP_DEPTH + 4));
+      objects.push(emptyActiveText);
+    } else {
+      const token = this.createBoostOctagonToken(panelX + 74, panelY + 113, 30, activeBoost.multiplier, BOOST_SHOP_DEPTH + 4, true);
+      const activeText = this.pinUi(this.add.text(panelX + 126, panelY + 101, `Active ${formatBoostMultiplier(activeBoost.multiplier)}`, {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: "18px",
+        fontStyle: "bold",
+        color: "#fff8de"
+      }).setOrigin(0, 0.5).setDepth(BOOST_SHOP_DEPTH + 5));
+      const activeTimer = this.pinUi(this.add.text(panelX + 126, panelY + 127, formatDuration(activeBoost.remainingSeconds), smallUiTextStyle(14, "#dcecf1"))
+        .setOrigin(0, 0.5)
+        .setDepth(BOOST_SHOP_DEPTH + 5));
+      objects.push(...token.objects, activeText, activeTimer);
+    }
+
+    const inventoryLabel = this.pinUi(this.add.text(panelX + 30, panelY + 178, "Ready Boosts", smallUiTextStyle(15, "#f9e9bb"))
+      .setOrigin(0, 0.5)
+      .setDepth(BOOST_SHOP_DEPTH + 4));
+    objects.push(inventoryLabel);
+
+    const stacks = createBoostInventoryStacks(state.boosts.queuedBoosts);
+    if (stacks.length === 0) {
+      const emptyText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 292, "No boosts ready. Buy one in the shop.", smallUiTextStyle(16, "#bdd2d8"))
+        .setOrigin(0.5)
+        .setDepth(BOOST_SHOP_DEPTH + 4));
+      objects.push(emptyText);
+    } else {
+      const visibleStacks = stacks.slice(0, 8);
+      visibleStacks.forEach((stack, index) => {
+        const column = index % 2;
+        const row = Math.floor(index / 2);
+        const cardX = panelX + 30 + column * 304;
+        const cardY = panelY + 202 + row * 68;
+        objects.push(...this.createBoostInventoryStackCard(stack, state, cardX, cardY, 284, 58, BOOST_SHOP_DEPTH + 4));
+      });
+
+      if (stacks.length > visibleStacks.length) {
+        const moreText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 482, `+${stacks.length - visibleStacks.length} more stacks`, smallUiTextStyle(12, "#bdd2d8"))
+          .setOrigin(0.5)
+          .setDepth(BOOST_SHOP_DEPTH + 4));
+        objects.push(moreText);
+      }
+    }
+
+    this.shopSoonModalObjects = objects;
+    this.boostModalMode = "inventory";
+
+    overlay.on("pointerdown", () => {
+      this.closeBoostShopModal();
+    });
+    panelZone.on("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+    });
+    closeButton.zone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.closeBoostShopModal();
+    });
+    shopButton.zone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation();
+      this.closeBoostShopModal();
+      this.showBoostShopModal();
+    });
+  }
+
+  private refreshBoostInventoryModal(): void {
+    if (this.shopSoonModalObjects === undefined) {
+      return;
+    }
+
+    this.closeBoostShopModal();
+    this.showBoostInventoryModal();
+  }
+
+  private createBoostInventoryStackCard(
+    stack: BoostInventoryStack,
+    state: GameState,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    depth: number
+  ): Phaser.GameObjects.GameObject[] {
+    const objects: Phaser.GameObjects.GameObject[] = [];
+    const activeBoost = state.boosts.activeBoost;
+    const canActivate = activeBoost === null || activeBoost.multiplier === stack.multiplier;
+    const buttonLabel = activeBoost === null ? "Activate" : canActivate ? "Add Time" : "Locked";
+    const card = this.pinUi(this.add.graphics().setDepth(depth));
+    const style = getBoostVisualStyle(stack.multiplier);
+    card.fillStyle(0x071015, 0.46);
+    card.fillRoundedRect(x, y, width, height, 10);
+    card.fillStyle(style.fill, 0.12);
+    card.fillRoundedRect(x + 4, y + 4, width - 8, height - 8, 8);
+    card.lineStyle(1.5, canActivate ? style.line : 0x6e7c83, canActivate ? 0.86 : 0.38);
+    card.strokeRoundedRect(x + 0.75, y + 0.75, width - 1.5, height - 1.5, 10);
+    objects.push(card);
+
+    const token = this.createBoostOctagonToken(x + 31, y + height / 2, 22, stack.multiplier, depth + 1, true);
+    token.text.setFontSize(16);
+    fitTextToWidth(token.text, 32, [16, 15, 14, 13, 12]);
+    objects.push(...token.objects);
+
+    const multiplierText = this.pinUi(this.add.text(x + 62, y + 18, `${formatBoostMultiplier(stack.multiplier)}  ${formatDuration(stack.durationSeconds)}`, smallUiTextStyle(13, "#fff8de"))
+      .setOrigin(0, 0.5)
+      .setDepth(depth + 2));
+    const countText = this.pinUi(this.add.text(x + 62, y + 40, stack.boosts.length > 1 ? `Stack x${stack.boosts.length}` : "Stack x1", smallUiTextStyle(11, "#bdd2d8"))
+      .setOrigin(0, 0.5)
+      .setDepth(depth + 2));
+    objects.push(multiplierText, countText);
+
+    const buttonX = x + width - 48;
+    const buttonY = y + height / 2;
+    const buttonWidth = 82;
+    const buttonHeight = 32;
+    const buttonBg = this.pinUi(this.add.graphics().setDepth(depth + 2));
+    buttonBg.fillStyle(canActivate ? 0x386641 : 0x51585c, canActivate ? 1 : 0.68);
+    buttonBg.fillRoundedRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight, 8);
+    buttonBg.lineStyle(1.5, canActivate ? 0xffefb2 : 0x8d989d, canActivate ? 0.7 : 0.38);
+    buttonBg.strokeRoundedRect(buttonX - buttonWidth / 2 + 0.75, buttonY - buttonHeight / 2 + 0.75, buttonWidth - 1.5, buttonHeight - 1.5, 8);
+    const buttonText = this.pinUi(this.add.text(buttonX, buttonY, buttonLabel, smallUiTextStyle(11, canActivate ? "#fff8de" : "#d8c6ad"))
+      .setOrigin(0.5)
+      .setDepth(depth + 3));
+    fitTextToWidth(buttonText, buttonWidth - 10, [11, 10, 9]);
+    const buttonZone = this.pinUi(
+      this.add.zone(buttonX, buttonY, buttonWidth, buttonHeight)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: canActivate })
+        .setDepth(depth + 4)
+    );
+    objects.push(buttonBg, buttonText, buttonZone);
+
+    if (canActivate && this.boostTutorialInventoryActivateTarget === undefined) {
+      this.boostTutorialInventoryActivateTarget = new Phaser.Geom.Rectangle(
+        buttonX - buttonWidth / 2,
+        buttonY - buttonHeight / 2,
+        buttonWidth,
+        buttonHeight
+      );
+      this.boostTutorialInventoryInstanceId = stack.boosts[0].instanceId;
+    }
+
+    buttonZone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+
+        if (!canActivate) {
+          return;
+        }
+
+        const frame = this.viewModel.activateIncomeBoost(stack.boosts[0].instanceId);
+        this.applyFrame(frame, this.time.now);
+        if (frame.events.some((frameEvent) => frameEvent.type === "incomeBoostActivated")) {
+          this.refreshBoostInventoryModal();
+        }
+      }
+    );
+    buttonZone.on("pointerover", () => {
+      if (!canActivate) {
+        return;
+      }
+
+      buttonBg.setAlpha(1);
+      buttonText.setScale(1.04);
+    });
+    buttonZone.on("pointerout", () => {
+      buttonBg.setAlpha(1);
+      buttonText.setScale(1);
+    });
+
+    return objects;
+  }
+
+  private createBoostShopOffer(
+    tier: BoostPurchaseTier,
+    state: GameState,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    depth: number
+  ): { objects: Phaser.GameObjects.GameObject[] } {
+    const offer = state.boosts.shop[tier];
+    const objects: Phaser.GameObjects.GameObject[] = [];
+    const drawOdds = offer.drawOdds;
+    const maxEntry = getMaxBoostEntry(drawOdds);
+    const minMultiplier = drawOdds.length > 0
+      ? Math.min(...drawOdds.map((entry) => entry.multiplier))
+      : tier === "cheap" ? 2 : 5;
+    const maxMultiplier = maxEntry?.multiplier ?? (tier === "cheap" ? 20 : 5000);
+    const likelyEntry = getMostLikelyBoostEntry(drawOdds);
+    const isFreeCheapSpin = tier === "cheap" && offer.canUseFreeSpin;
+    const title = tier === "cheap" ? "Small Boost" : "Mega Boost";
+    const subtitle = tier === "cheap" ? "Daily draw" : "High-roll draw";
+    const enabled = offer.canAfford && !this.boostPurchaseAnimationActive;
+    const card = this.pinUi(this.add.graphics().setDepth(depth));
+    const cardLine = tier === "cheap" ? 0xf1c96b : 0xffdc82;
+    card.fillStyle(tier === "cheap" ? 0x17353c : 0x251d2d, 0.92);
+    card.fillRoundedRect(x, y, width, height, 14);
+    card.fillStyle(0xf8d981, tier === "cheap" ? 0.08 : 0.12);
+    card.fillRoundedRect(x + 7, y + 7, width - 14, height - 14, 11);
+    card.lineStyle(2, cardLine, enabled ? 0.96 : 0.42);
+    card.strokeRoundedRect(x + 0.75, y + 0.75, width - 1.5, height - 1.5, 14);
+    objects.push(card);
+
+    const token = this.createBoostOctagonToken(x + 72, y + 82, 43, maxMultiplier, depth + 1, true);
+    objects.push(...token.objects);
+
+    const titleText = this.pinUi(this.add.text(x + 132, y + 38, title, {
+      fontFamily: UI_FONT_FAMILY,
+      fontSize: "23px",
+      fontStyle: "bold",
+      color: "#fff3c5",
+      stroke: "#2d1a0b",
+      strokeThickness: 4
+    }).setOrigin(0, 0.5).setDepth(depth + 2));
+    const subtitleText = this.pinUi(this.add.text(x + 132, y + 66, subtitle, smallUiTextStyle(13, "#bdd2d8"))
+      .setOrigin(0, 0.5)
+      .setDepth(depth + 2));
+    const rangeText = this.pinUi(this.add.text(x + 132, y + 101, `${formatPlainMultiplier(minMultiplier)}x - ${formatPlainMultiplier(maxMultiplier)}x`, {
       fontFamily: UI_FONT_FAMILY,
       fontSize: "28px",
       fontStyle: "bold",
-      color: "#f6e8bb"
-    }).setOrigin(0.5).setDepth(MAP_VIEW_DEPTH + 142));
-    const icon = this.pinUi(
-      this.add.image(GAME_WIDTH / 2, panelY + 92, "shop-icon").setDisplaySize(SHOP_ICON_SIZE, SHOP_ICON_SIZE).setDepth(MAP_VIEW_DEPTH + 142)
+      color: "#ffffff",
+      stroke: "#24150b",
+      strokeThickness: 4
+    }).setOrigin(0, 0.5).setDepth(depth + 2));
+    fitTextToWidth(rangeText, 154, [28, 26, 24, 22, 20, 18]);
+
+    const likelyText = this.pinUi(this.add.text(
+      x + 30,
+      y + 150,
+      likelyEntry === undefined
+        ? ""
+        : `Likely ${formatBoostMultiplier(likelyEntry.multiplier)}  ${formatPercent(likelyEntry.chance)}`,
+      smallUiTextStyle(13, "#f7e2a4")
+    ).setOrigin(0, 0.5).setDepth(depth + 2));
+    const topText = this.pinUi(this.add.text(
+      x + 30,
+      y + 174,
+      maxEntry === undefined
+        ? ""
+        : `Top ${formatBoostMultiplier(maxEntry.multiplier)}  ${formatPercent(maxEntry.chance)}`,
+      smallUiTextStyle(13, maxMultiplier >= 500 ? "#ffe28a" : "#dcecf1")
+    ).setOrigin(0, 0.5).setDepth(depth + 2));
+    const durationText = this.pinUi(this.add.text(
+      x + 30,
+      y + 198,
+      `Duration ${formatBoostDurationRange(drawOdds)}`,
+      smallUiTextStyle(12, "#bdd2d8")
+    ).setOrigin(0, 0.5).setDepth(depth + 2));
+
+    objects.push(titleText, subtitleText, rangeText, likelyText, topText, durationText);
+
+    const buttonX = x + width / 2;
+    const buttonY = y + height - 38;
+    const buttonWidth = 202;
+    const buttonHeight = 46;
+    const buttonBg = this.pinUi(this.add.graphics().setDepth(depth + 2));
+    const buttonFill = enabled ? (isFreeCheapSpin ? 0x2f8d5b : 0x386641) : 0x5b6468;
+    buttonBg.fillStyle(buttonFill, enabled ? 1 : 0.76);
+    buttonBg.fillRoundedRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight, 12);
+    buttonBg.lineStyle(2, enabled ? 0xffefb2 : 0x8d989d, enabled ? 0.78 : 0.45);
+    buttonBg.strokeRoundedRect(buttonX - buttonWidth / 2 + 0.75, buttonY - buttonHeight / 2 + 0.75, buttonWidth - 1.5, buttonHeight - 1.5, 12);
+
+    const costIcon = isFreeCheapSpin
+      ? undefined
+      : this.pinUi(
+          this.add.image(buttonX - 52, buttonY, "supercash-icon")
+            .setDisplaySize(28, 28)
+            .setAlpha(enabled ? 1 : 0.58)
+            .setDepth(depth + 3)
+        );
+    const costIconBaseScale = costIcon === undefined
+      ? null
+      : { x: costIcon.scaleX, y: costIcon.scaleY };
+    const buttonText = this.pinUi(this.add.text(
+      isFreeCheapSpin ? buttonX : buttonX + 20,
+      buttonY,
+      isFreeCheapSpin ? "FREE SPIN" : formatSuperCash(offer.cost),
+      {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: "20px",
+        fontStyle: "bold",
+        color: enabled ? "#fff8de" : "#d8c6ad",
+        stroke: "#2a180c",
+        strokeThickness: 3
+      }
+    ).setOrigin(0.5).setDepth(depth + 3));
+    fitTextToWidth(buttonText, isFreeCheapSpin ? 160 : 120, [20, 18, 16, 14, 12]);
+
+    const buttonZone = this.pinUi(
+      this.add.zone(buttonX, buttonY, buttonWidth, buttonHeight)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: enabled })
+        .setDepth(depth + 4)
     );
-    const bodyText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 142, "Shop available soon.", {
-      fontFamily: UI_FONT_FAMILY,
-      fontSize: "18px",
-      color: "#dcecf1"
-    }).setOrigin(0.5).setDepth(MAP_VIEW_DEPTH + 142));
-    const okButton = this.createModalButton(GAME_WIDTH / 2, panelY + 190, 150, 42, "OK", 0x386641, MAP_VIEW_DEPTH + 142);
-    const objects = [
-      overlay,
-      panel,
-      titleText,
-      icon,
-      bodyText,
-      ...okButton.objects
-    ];
-    const close = () => {
-      objects.forEach((obj) => obj.destroy());
-      this.shopSoonModalObjects = undefined;
-    };
+    const rollCenter = { x: GAME_WIDTH / 2, y: y + 84 };
 
-    this.shopSoonModalObjects = objects;
+    buttonZone.on(
+      "pointerdown",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        if (this.boostPurchaseAnimationActive) {
+          return;
+        }
 
-    okButton.zone.once("pointerdown", (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-      event.stopPropagation();
-      close();
+        this.handleBoostShopPurchase(tier, this.getScreenCenter(buttonZone), rollCenter);
+      }
+    );
+    buttonZone.on("pointerover", () => {
+      if (!enabled) {
+        return;
+      }
+
+      buttonBg.setAlpha(1);
+      buttonText.setScale(1.04);
+      if (costIcon !== undefined && costIconBaseScale !== null) {
+        costIcon.setScale(costIconBaseScale.x * 1.08, costIconBaseScale.y * 1.08);
+      }
     });
+    buttonZone.on("pointerout", () => {
+      buttonBg.setAlpha(1);
+      buttonText.setScale(1);
+      if (costIcon !== undefined && costIconBaseScale !== null) {
+        costIcon.setScale(costIconBaseScale.x, costIconBaseScale.y);
+      }
+    });
+
+    objects.push(buttonBg, buttonText, buttonZone);
+    if (costIcon !== undefined) {
+      objects.push(costIcon);
+    }
+
+    return { objects };
+  }
+
+  private handleBoostShopPurchase(tier: BoostPurchaseTier, source: ScreenPoint, rollCenter: ScreenPoint): void {
+    if (this.boostPurchaseAnimationActive) {
+      return;
+    }
+
+    this.boostPurchaseAnimationActive = true;
+    const frame = this.viewModel.purchaseBoost(tier);
+    const purchaseEvent = frame.events.find(
+      (event): event is Extract<SimulationEvent, { type: "incomeBoostPurchased" }> =>
+        event.type === "incomeBoostPurchased"
+    );
+
+    this.applyFrame(frame, this.time.now);
+
+    if (purchaseEvent === undefined) {
+      this.boostPurchaseAnimationActive = false;
+      return;
+    }
+
+    this.animateBoostPurchaseSpend(source, purchaseEvent.usedFreeSpin);
+    this.refreshBoostShopModal();
+    this.animateBoostPurchaseRoll(tier, purchaseEvent.boost, rollCenter, () => {
+      this.boostPurchaseAnimationActive = false;
+      if (this.boostModalMode === "shop") {
+        this.refreshBoostShopModal();
+      }
+    });
+  }
+
+  private animateBoostPurchaseSpend(source: ScreenPoint, usedFreeSpin: boolean): void {
+    const count = usedFreeSpin ? 10 : 14;
+    const depth = BOOST_SHOP_DEPTH + 84;
+
+    for (let i = 0; i < count; i += 1) {
+      const object = usedFreeSpin
+        ? this.pinUi(this.add.circle(source.x, source.y, Phaser.Math.Between(3, 5), 0x9df1bd, 0.94).setDepth(depth))
+        : this.pinUi(
+            this.add.image(source.x, source.y, "supercash-icon")
+              .setDisplaySize(22, 22)
+              .setDepth(depth)
+          );
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const distance = Phaser.Math.Between(34, 82);
+
+      this.tweens.add({
+        targets: object,
+        x: source.x + Math.cos(angle) * distance,
+        y: source.y + Math.sin(angle) * distance,
+        alpha: 0,
+        scaleX: usedFreeSpin ? 0.25 : 0.42,
+        scaleY: usedFreeSpin ? 0.25 : 0.42,
+        angle: Phaser.Math.Between(-120, 120),
+        duration: 520,
+        ease: "Cubic.easeOut",
+        onComplete: () => object.destroy()
+      });
+    }
+  }
+
+  private animateBoostPurchaseRoll(
+    tier: BoostPurchaseTier,
+    boost: IncomeBoostRuntimeState,
+    center: ScreenPoint,
+    onComplete?: () => void
+  ): void {
+    const depth = BOOST_SHOP_DEPTH + 90;
+    const plaque = this.pinUi(this.add.graphics().setDepth(depth));
+    plaque.fillStyle(0x071015, 0.86);
+    plaque.fillRoundedRect(center.x - 142, center.y - 84, 284, 190, 18);
+    plaque.lineStyle(2, 0xf7d577, 0.94);
+    plaque.strokeRoundedRect(center.x - 142, center.y - 84, 284, 190, 18);
+
+    const title = this.pinUi(this.add.text(center.x, center.y - 58, "ROLLING", smallUiTextStyle(16, "#f9e9bb"))
+      .setOrigin(0.5)
+      .setDepth(depth + 2));
+    const token = this.createBoostOctagonToken(center.x, center.y + 4, 58, boost.multiplier, depth + 1, true);
+    const resultText = this.pinUi(this.add.text(center.x, center.y + 80, "", smallUiTextStyle(15, "#dcecf1"))
+      .setOrigin(0.5)
+      .setDepth(depth + 2));
+    const objects: Phaser.GameObjects.GameObject[] = [plaque, title, resultText, ...token.objects];
+    const rollMultipliers = this.buildBoostRollMultipliers(tier, boost.multiplier);
+
+    rollMultipliers.forEach((multiplier, index) => {
+      this.time.delayedCall(index * 58, () => {
+        if (!token.graphics.active || !token.text.active) {
+          return;
+        }
+
+        this.paintBoostOctagon(token.graphics, center.x, center.y + 4, 58, multiplier);
+        token.text.setText(formatBoostMultiplier(multiplier)).setScale(1.08);
+        fitTextToWidth(token.text, 92, [30, 28, 26, 24, 22, 20, 18]);
+        this.tweens.add({
+          targets: token.text,
+          scaleX: 1,
+          scaleY: 1,
+          duration: 45,
+          ease: "Quad.easeOut"
+        });
+      });
+    });
+
+    const finalDelay = rollMultipliers.length * 58 + 90;
+    this.time.delayedCall(finalDelay, () => {
+      if (!token.graphics.active || !token.text.active) {
+        return;
+      }
+
+      this.paintBoostOctagon(token.graphics, center.x, center.y + 4, 58, boost.multiplier);
+      token.text.setText(formatBoostMultiplier(boost.multiplier)).setScale(1.24);
+      resultText.setText(`${formatBoostMultiplier(boost.multiplier)}  ${formatDuration(boost.durationSeconds)}`);
+      fitTextToWidth(resultText, 210, [15, 14, 13, 12]);
+      this.spawnBoostSparks({ x: center.x, y: center.y + 4 }, boost.multiplier, depth + 8);
+
+      this.tweens.add({
+        targets: [token.text, resultText],
+        scaleX: 1,
+        scaleY: 1,
+        duration: 220,
+        ease: "Back.easeOut"
+      });
+    });
+
+    this.time.delayedCall(finalDelay + 1180, () => {
+      objects.forEach((object) => {
+        if (!object.active) {
+          return;
+        }
+
+        this.tweens.add({
+          targets: object,
+          alpha: 0,
+          duration: 260,
+          ease: "Quad.easeIn",
+          onComplete: () => object.destroy()
+        });
+      });
+    });
+
+    this.time.delayedCall(finalDelay + 1460, () => {
+      onComplete?.();
+    });
+  }
+
+  private buildBoostRollMultipliers(tier: BoostPurchaseTier, finalMultiplier: number): number[] {
+    const state = this.latestState ?? this.viewModel.getInitialFrame().state;
+    const candidates = state.boosts.shop[tier].drawOdds.map((entry) => entry.multiplier);
+
+    if (candidates.length === 0) {
+      return [finalMultiplier];
+    }
+
+    const frames: number[] = [];
+    for (let i = 0; i < 17; i += 1) {
+      frames.push(candidates[Phaser.Math.Between(0, candidates.length - 1)]);
+    }
+    frames.push(finalMultiplier);
+    return frames;
+  }
+
+  private refreshBoostSlot(state: GameState): void {
+    const slot = this.boostSlot;
+    if (slot === undefined) {
+      return;
+    }
+
+    const activeBoost = state.boosts.activeBoost;
+    const left = BOOST_SLOT_X - BOOST_SLOT_WIDTH / 2;
+    const top = BOOST_SLOT_Y - BOOST_SLOT_HEIGHT / 2;
+    const style = getBoostVisualStyle(activeBoost?.multiplier ?? 0);
+
+    slot.frame.clear();
+    slot.frame.fillStyle(0x102530, 0.9);
+    slot.frame.fillRoundedRect(left, top, BOOST_SLOT_WIDTH, BOOST_SLOT_HEIGHT, 13);
+    slot.frame.fillStyle(style.fill, activeBoost === null ? 0.1 : 0.18);
+    slot.frame.fillRoundedRect(left + 5, top + 5, BOOST_SLOT_WIDTH - 10, BOOST_SLOT_HEIGHT - 10, 10);
+    slot.frame.lineStyle(2, activeBoost === null ? 0x6e7c83 : style.line, activeBoost === null ? 0.58 : 0.92);
+    slot.frame.strokeRoundedRect(left + 0.75, top + 0.75, BOOST_SLOT_WIDTH - 1.5, BOOST_SLOT_HEIGHT - 1.5, 13);
+    slot.frame.setAlpha(0.94);
+
+    slot.token.clear();
+    if (activeBoost === null) {
+      slot.token.setVisible(true);
+      this.paintEmptyBoostOctagon(slot.token, BOOST_SLOT_X, BOOST_SLOT_Y + 4, BOOST_SLOT_TOKEN_RADIUS);
+      slot.multiplierText.setPosition(BOOST_SLOT_X, BOOST_SLOT_Y + 4);
+      slot.multiplierText.setColor("#dcecf1");
+      setTextIfChanged(slot.multiplierText, "NO BOOST");
+      setTextIfChanged(slot.timerText, "");
+      setTextIfChanged(slot.queueText, "");
+    } else {
+      slot.token.setVisible(true);
+      this.paintBoostOctagon(slot.token, BOOST_SLOT_X, BOOST_SLOT_Y + 4, BOOST_SLOT_TOKEN_RADIUS, activeBoost.multiplier);
+      setTextIfChanged(slot.multiplierText, formatBoostMultiplier(activeBoost.multiplier));
+      slot.multiplierText.setPosition(BOOST_SLOT_X, BOOST_SLOT_Y + 4);
+      slot.multiplierText.setColor("#ffffff");
+      slot.timerText.setPosition(BOOST_SLOT_X, BOOST_SLOT_Y + 49);
+      setTextIfChanged(slot.timerText, formatDuration(activeBoost.remainingSeconds));
+      setTextIfChanged(slot.queueText, "");
+    }
+
+    fitTextToWidth(slot.multiplierText, 58, [19, 18, 16, 14, 12, 10]);
+    fitTextToWidth(slot.timerText, BOOST_SLOT_WIDTH - 20, [11, 10, 9, 8]);
+    fitTextToWidth(slot.queueText, BOOST_SLOT_WIDTH - 18, [9, 8, 7]);
+
+    slot.activeInstanceId = activeBoost?.instanceId ?? null;
+    slot.styleKey = style.key;
+  }
+
+  private refreshBoostFeatureVisibility(state: GameState): void {
+    const visible = this.areBoostFeaturesUnlocked(state);
+
+    if (this.shopButton !== undefined) {
+      setVisibleIfChanged(this.shopButton.background, visible);
+      setVisibleIfChanged(this.shopButton.icon, visible);
+      setVisibleIfChanged(this.shopButton.zone, visible);
+
+      if (visible) {
+        this.shopButton.zone.setInteractive({ useHandCursor: true });
+      } else {
+        this.shopButton.zone.disableInteractive();
+      }
+    }
+
+    if (this.boostSlot !== undefined) {
+      setVisibleIfChanged(this.boostSlot.frame, visible);
+      setVisibleIfChanged(this.boostSlot.token, visible);
+      setVisibleIfChanged(this.boostSlot.labelText, visible);
+      setVisibleIfChanged(this.boostSlot.multiplierText, visible);
+      setVisibleIfChanged(this.boostSlot.timerText, visible && state.boosts.activeBoost !== null);
+      setVisibleIfChanged(this.boostSlot.queueText, false);
+      setVisibleIfChanged(this.boostSlot.zone, visible);
+
+      if (visible) {
+        this.boostSlot.zone.setInteractive({ useHandCursor: true });
+      } else {
+        this.boostSlot.zone.disableInteractive();
+      }
+    }
+  }
+
+  private processIncomeBoostEvents(events: SimulationEvent[]): void {
+    const activated = events.filter(
+      (event): event is Extract<SimulationEvent, { type: "incomeBoostActivated" }> =>
+        event.type === "incomeBoostActivated"
+    );
+
+    if (activated.length === 0) {
+      return;
+    }
+
+    this.animateBoostSlotActivation(activated[activated.length - 1].boost);
+  }
+
+  private animateBoostSlotActivation(boost: IncomeBoostRuntimeState): void {
+    const slot = this.boostSlot;
+    if (slot === undefined) {
+      return;
+    }
+
+    this.activeBoostPulseTween?.stop();
+    slot.multiplierText.setScale(1);
+    slot.timerText.setScale(1);
+    this.activeBoostPulseTween = this.tweens.add({
+      targets: [slot.multiplierText, slot.timerText],
+      scaleX: 1.18,
+      scaleY: 1.18,
+      duration: 160,
+      yoyo: true,
+      ease: "Back.easeOut",
+      onComplete: () => {
+        slot.multiplierText.setScale(1);
+        slot.timerText.setScale(1);
+      }
+    });
+    this.spawnBoostSparks(
+      {
+        x: BOOST_SLOT_X - this.cameras.main.scrollX,
+        y: BOOST_SLOT_Y - 6 - this.cameras.main.scrollY
+      },
+      boost.multiplier,
+      SUPER_CASH_ANIMATION_DEPTH
+    );
+  }
+
+  private createBoostOctagonToken(
+    centerX: number,
+    centerY: number,
+    radius: number,
+    multiplier: number,
+    depth: number,
+    pinned: boolean
+  ): {
+    graphics: Phaser.GameObjects.Graphics;
+    text: Phaser.GameObjects.Text;
+    objects: Phaser.GameObjects.GameObject[];
+  } {
+    const graphics = pinned
+      ? this.pinUi(this.add.graphics().setDepth(depth))
+      : this.add.graphics().setDepth(depth);
+    const text = pinned
+      ? this.pinUi(this.add.text(centerX, centerY, formatBoostMultiplier(multiplier), {
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: "27px",
+          fontStyle: "900",
+          color: "#ffffff",
+          stroke: "#261a0f",
+          strokeThickness: 5
+        }).setOrigin(0.5).setDepth(depth + 1))
+      : this.add.text(centerX, centerY, formatBoostMultiplier(multiplier), {
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: "27px",
+          fontStyle: "900",
+          color: "#ffffff",
+          stroke: "#261a0f",
+          strokeThickness: 5
+        }).setOrigin(0.5).setDepth(depth + 1);
+
+    this.paintBoostOctagon(graphics, centerX, centerY, radius, multiplier);
+    fitTextToWidth(text, radius * 1.45, [27, 25, 23, 21, 19, 17, 15]);
+
+    return {
+      graphics,
+      text,
+      objects: [graphics, text]
+    };
+  }
+
+  private paintBoostOctagon(
+    graphics: Phaser.GameObjects.Graphics,
+    centerX: number,
+    centerY: number,
+    radius: number,
+    multiplier: number
+  ): void {
+    const style = getBoostVisualStyle(multiplier);
+    const points = getOctagonPoints(centerX, centerY, radius);
+    const innerPoints = getOctagonPoints(centerX, centerY, radius * 0.72);
+
+    graphics.clear();
+    graphics.fillStyle(0x000000, 0.28);
+    graphics.fillPoints(getOctagonPoints(centerX + 3, centerY + 4, radius), true, true);
+    graphics.fillStyle(style.fill, 0.98);
+    graphics.fillPoints(points, true, true);
+    graphics.fillStyle(style.innerFill, 0.46);
+    graphics.fillPoints(innerPoints, true, true);
+    graphics.lineStyle(3, style.line, 1);
+    graphics.strokePoints(points, true, true);
+    graphics.lineStyle(1, style.accent, 0.72);
+    graphics.strokePoints(innerPoints, true, true);
+  }
+
+  private paintEmptyBoostOctagon(
+    graphics: Phaser.GameObjects.Graphics,
+    centerX: number,
+    centerY: number,
+    radius: number
+  ): void {
+    const points = getOctagonPoints(centerX, centerY, radius);
+    const innerPoints = getOctagonPoints(centerX, centerY, radius * 0.72);
+
+    graphics.clear();
+    graphics.fillStyle(0x000000, 0.22);
+    graphics.fillPoints(getOctagonPoints(centerX + 3, centerY + 4, radius), true, true);
+    graphics.fillStyle(0x273943, 0.94);
+    graphics.fillPoints(points, true, true);
+    graphics.fillStyle(0x49626c, 0.34);
+    graphics.fillPoints(innerPoints, true, true);
+    graphics.lineStyle(2, 0x94a7ad, 0.74);
+    graphics.strokePoints(points, true, true);
+  }
+
+  private spawnBoostSparks(center: ScreenPoint, multiplier: number, depth: number): void {
+    const style = getBoostVisualStyle(multiplier);
+    const sparkCount = multiplier >= 500 ? 26 : multiplier >= 50 ? 20 : 15;
+
+    for (let i = 0; i < sparkCount; i += 1) {
+      const spark = this.pinUi(
+        this.add.circle(center.x, center.y, Phaser.Math.Between(2, 5), i % 3 === 0 ? style.accent : style.line, 0.94)
+          .setDepth(depth)
+      );
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const distance = Phaser.Math.Between(38, multiplier >= 500 ? 126 : 88);
+
+      this.tweens.add({
+        targets: spark,
+        x: center.x + Math.cos(angle) * distance,
+        y: center.y + Math.sin(angle) * distance,
+        alpha: 0,
+        scaleX: 0.18,
+        scaleY: 0.18,
+        duration: Phaser.Math.Between(520, 860),
+        ease: "Cubic.easeOut",
+        onComplete: () => spark.destroy()
+      });
+    }
   }
 
   private createManagerSlots(): void {
@@ -4091,11 +5088,13 @@ export class MineScene extends Phaser.Scene {
       visual.warehouseFeedback.visible,
       visual.warehouseFeedback.text,
       visual.commandFeedback.visible,
-      visual.commandFeedback.text
+      visual.commandFeedback.text,
+      state.boosts.incomeMultiplier > 1
     );
     this.processSuperCashAwardEvents(events, state);
     this.processSuperCashSpentEvents(events, state);
     this.applyUiState(state, events, buyMode);
+    this.processIncomeBoostEvents(events);
     this.updateTutorialOverlay(state);
   }
 
@@ -4311,7 +5310,8 @@ export class MineScene extends Phaser.Scene {
     salesFeedbackVisible: boolean,
     salesFeedbackText: string,
     commandFeedbackVisible: boolean,
-    commandFeedbackText: string
+    commandFeedbackText: string,
+    boostedSalesFeedback: boolean
   ): void {
     const activeMineId = this.getActiveMineId();
     const workerTexture =
@@ -4338,8 +5338,24 @@ export class MineScene extends Phaser.Scene {
     setTextureIfChanged(this.warehousePile, pileTexture);
     setVisibleIfChanged(this.warehouseFeedback, salesFeedbackVisible);
     setTextIfChanged(this.warehouseFeedback, salesFeedbackText);
+    this.refreshWarehouseFeedbackStyle(boostedSalesFeedback && salesFeedbackVisible);
     setVisibleIfChanged(this.commandFeedback, commandFeedbackVisible);
     setTextIfChanged(this.commandFeedback, commandFeedbackText);
+  }
+
+  private refreshWarehouseFeedbackStyle(isBoosted: boolean): void {
+    if (isBoosted) {
+      this.warehouseFeedback
+        .setColor("#fff4a3")
+        .setStroke("#7a2a0a", 5)
+        .setShadow(0, 0, "#ff9f2e", 8, true, true);
+      return;
+    }
+
+    this.warehouseFeedback
+      .setColor("#f8dc75")
+      .setStroke("#40270f", 4)
+      .setShadow(0, 0, "rgba(0,0,0,0)", 0, false, false);
   }
 
   private applyUiState(state: GameState, events: SimulationEvent[], buyMode: UpgradeBuyMode): void {
@@ -4376,6 +5392,13 @@ export class MineScene extends Phaser.Scene {
     const managerTimerChanged = currentManagerSecond !== this.lastManagerSlotRefreshSecond;
     const managerPanelDynamicChanged =
       eventTypes.has("moneyChanged") || currentManagerSecond !== this.lastManagerPanelRefreshSecond;
+    const boostTimerChanged = currentManagerSecond !== this.lastBoostSlotRefreshSecond;
+    const boostStateChanged =
+      refreshAll ||
+      boostTimerChanged ||
+      eventTypes.has("incomeBoostPurchased") ||
+      eventTypes.has("incomeBoostActivated") ||
+      eventTypes.has("incomeBoostExpired");
 
     if (refreshAll || eventTypes.has("moneyChanged") || eventTypes.has("superCashAwarded") || eventTypes.has("superCashSpent")) {
       this.refreshCurrencyPanels(state);
@@ -4423,6 +5446,12 @@ export class MineScene extends Phaser.Scene {
       this.refreshBuyModeButtons(buyMode);
       this.refreshUpgradeCards(state);
     }
+
+    if (boostStateChanged) {
+      this.refreshBoostSlot(state);
+      this.lastBoostSlotRefreshSecond = currentManagerSecond;
+    }
+    this.refreshBoostFeatureVisibility(state);
 
     if (managerStateChanged || managerTimerChanged) {
       this.refreshManagerSlots(state);
@@ -4627,12 +5656,37 @@ export class MineScene extends Phaser.Scene {
       return;
     }
 
+    const centerY = this.getNavigationButtonY(this.latestState);
+    if (this.navigationButton.centerY !== centerY) {
+      this.navigationButton.centerY = centerY;
+      this.paintNavigationButtonFrame(this.navigationButton.background, centerY);
+      this.navigationButton.icon.setY(centerY);
+      this.navigationButton.zone.setY(centerY);
+    }
+
     const direction = this.isSurfaceUpgradePanelVisible() ? "down" : "up";
 
     if (this.navigationButton.direction !== direction) {
       this.navigationButton.direction = direction;
       this.navigationButton.icon.setAngle(direction === "down" ? 0 : 180);
     }
+  }
+
+  private getNavigationButtonY(state: GameState | undefined): number {
+    return this.areBoostFeaturesUnlocked(state) ? NAVIGATION_BUTTON_Y : SHOP_BUTTON_Y;
+  }
+
+  private paintNavigationButtonFrame(graphics: Phaser.GameObjects.Graphics, centerY: number): void {
+    const buttonLeft = NAVIGATION_BUTTON_X - MAP_BUTTON_SIZE / 2;
+    const buttonTop = centerY - MAP_BUTTON_SIZE / 2;
+
+    graphics.clear();
+    graphics.fillStyle(0xf4cb7d, 0.98);
+    graphics.fillRoundedRect(buttonLeft, buttonTop, MAP_BUTTON_SIZE, MAP_BUTTON_SIZE, 18);
+    graphics.fillStyle(0xffdf9a, 0.52);
+    graphics.fillRoundedRect(buttonLeft + 4, buttonTop + 4, MAP_BUTTON_SIZE - 8, MAP_BUTTON_SIZE - 8, 14);
+    graphics.lineStyle(1.5, 0x613212, 0.82);
+    graphics.strokeRoundedRect(buttonLeft + 0.75, buttonTop + 0.75, MAP_BUTTON_SIZE - 1.5, MAP_BUTTON_SIZE - 1.5, 18);
   }
 
   private drawManagerSlotFrame(
@@ -5994,14 +7048,18 @@ export class MineScene extends Phaser.Scene {
     try {
       const raw = window.localStorage.getItem(TUTORIAL_STORAGE_KEY);
       if (raw === null) {
+        this.hasTutorialProgressRecord = false;
         return;
       }
 
+      this.hasTutorialProgressRecord = true;
       const parsed = JSON.parse(raw) as {
         completed?: unknown;
         progressIndex?: unknown;
         managerUnlockAcknowledged?: unknown;
         managerBoostHintShown?: unknown;
+        boostTutorialCompleted?: unknown;
+        boostTutorialStep?: unknown;
       };
       this.tutorialCompleted = parsed.completed === true;
       this.tutorialProgressIndex =
@@ -6010,7 +7068,10 @@ export class MineScene extends Phaser.Scene {
           : 0;
       this.tutorialManagerUnlockAcknowledged = parsed.managerUnlockAcknowledged === true;
       this.managerBoostHintShown = parsed.managerBoostHintShown === true;
+      this.boostTutorialCompleted = parsed.boostTutorialCompleted === true;
+      this.boostTutorialStep = parsed.boostTutorialStep === "inventory" ? "inventory" : "shop";
     } catch {
+      this.hasTutorialProgressRecord = false;
       this.tutorialProgressIndex = 0;
       this.tutorialCompleted = false;
     }
@@ -6028,7 +7089,9 @@ export class MineScene extends Phaser.Scene {
           completed: this.tutorialCompleted,
           progressIndex: this.tutorialProgressIndex,
           managerUnlockAcknowledged: this.tutorialManagerUnlockAcknowledged,
-          managerBoostHintShown: this.managerBoostHintShown
+          managerBoostHintShown: this.managerBoostHintShown,
+          boostTutorialCompleted: this.boostTutorialCompleted,
+          boostTutorialStep: this.boostTutorialStep
         })
       );
     } catch {
@@ -6037,6 +7100,11 @@ export class MineScene extends Phaser.Scene {
   }
 
   private updateTutorialOverlay(state: GameState): void {
+    if (this.shouldShowBoostTutorial(state)) {
+      this.showBoostTutorial(state);
+      return;
+    }
+
     if (this.shouldShowManagerBoostHint(state)) {
       this.showManagerBoostHint(state);
       return;
@@ -6186,7 +7254,66 @@ export class MineScene extends Phaser.Scene {
         }
 
         return { rect: getObjectBounds(this.allManagerAbilitiesButton.zone), isWorldSpace: false };
+      case "boostShopUnlock":
+        if (this.shopButton === undefined) {
+          return null;
+        }
+
+        return { rect: getObjectBounds(this.shopButton.zone), isWorldSpace: false };
+      case "boostInventoryActivate":
+        if (this.boostTutorialInventoryActivateTarget !== undefined) {
+          return { rect: this.boostTutorialInventoryActivateTarget, isWorldSpace: false };
+        }
+
+        if (this.boostSlot !== undefined) {
+          return { rect: getObjectBounds(this.boostSlot.zone), isWorldSpace: true };
+        }
+
+        return null;
     }
+  }
+
+  private shouldShowBoostTutorial(state: GameState): boolean {
+    if (this.boostTutorialCompleted || !this.areBoostFeaturesUnlocked(state) || this.mapViewContainer !== undefined) {
+      return false;
+    }
+
+    if (this.activeManagerPanelArea !== null || this.managerPanel !== undefined) {
+      return false;
+    }
+
+    return state.boosts.activeBoost === null || this.boostTutorialStep === "inventory";
+  }
+
+  private showBoostTutorial(state: GameState): void {
+    this.boostTutorialActive = true;
+
+    if (state.boosts.activeBoost !== null) {
+      this.completeBoostTutorial();
+      return;
+    }
+
+    if (state.boosts.queuedBoosts.length > 0) {
+      this.boostTutorialStep = "inventory";
+    }
+
+    const step: TutorialStepId = this.boostTutorialStep === "shop" ? "boostShopUnlock" : "boostInventoryActivate";
+
+    if (step === "boostInventoryActivate" && this.shopSoonModalObjects === undefined) {
+      this.showBoostInventoryModal();
+    }
+
+    const target = this.getTutorialTarget(step, state);
+    if (target === null) {
+      this.destroyTutorialOverlay();
+      return;
+    }
+
+    const screenRect = target.isWorldSpace ? this.worldRectToScreenRect(target.rect) : target.rect;
+    const paddedRect = clampRectToScreen(padRect(screenRect, TUTORIAL_FOCUS_PADDING));
+    const overlay = this.getOrCreateTutorialOverlay();
+
+    this.layoutTutorialOverlay(overlay, paddedRect, step, state);
   }
 
   private shouldShowManagerBoostHint(state: GameState): boolean {
@@ -6349,7 +7476,16 @@ export class MineScene extends Phaser.Scene {
 
   private handleTutorialFocusedClick(): void {
     const state = this.latestState;
-    if (state === undefined || this.tutorialCompleted || this.tutorialCompletionPending || this.tutorialPendingActionStep !== null) {
+    if (state === undefined) {
+      return;
+    }
+
+    if (this.boostTutorialActive) {
+      this.handleBoostTutorialFocusedClick(state);
+      return;
+    }
+
+    if (this.tutorialCompleted || this.tutorialCompletionPending || this.tutorialPendingActionStep !== null) {
       if (state !== undefined && this.managerBoostHintActive) {
         this.dismissManagerBoostHint();
       }
@@ -6436,6 +7572,71 @@ export class MineScene extends Phaser.Scene {
         this.dismissManagerBoostHint();
         return;
     }
+  }
+
+  private handleBoostTutorialFocusedClick(state: GameState): void {
+    if (this.boostTutorialStep === "shop") {
+      if (this.boostPurchaseAnimationActive) {
+        return;
+      }
+
+      this.boostPurchaseAnimationActive = true;
+      const source = this.shopButton === undefined
+        ? { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 }
+        : this.getScreenCenter(this.shopButton.zone);
+      const frame = this.viewModel.purchaseCheapBoost({ useFreeSpin: true });
+      const purchaseEvent = frame.events.find(
+        (event): event is Extract<SimulationEvent, { type: "incomeBoostPurchased" }> =>
+          event.type === "incomeBoostPurchased"
+      );
+
+      this.applyFrame(frame, this.time.now);
+
+      if (purchaseEvent !== undefined) {
+        this.animateBoostPurchaseSpend(source, purchaseEvent.usedFreeSpin);
+        this.animateBoostPurchaseRoll("cheap", purchaseEvent.boost, { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 - 72 }, () => {
+          this.boostPurchaseAnimationActive = false;
+        });
+        this.boostTutorialStep = "inventory";
+        this.saveTutorialProgress();
+        this.closeBoostShopModal();
+        this.showBoostInventoryModal();
+        this.updateTutorialOverlay(this.latestState ?? state);
+        return;
+      }
+
+      this.boostPurchaseAnimationActive = false;
+      this.completeBoostTutorial();
+      return;
+    }
+
+    const instanceId = this.boostTutorialInventoryInstanceId ?? state.boosts.queuedBoosts[0]?.instanceId;
+
+    if (instanceId === undefined) {
+      this.completeBoostTutorial();
+      return;
+    }
+
+    const frame = this.viewModel.activateIncomeBoost(instanceId);
+    this.applyFrame(frame, this.time.now);
+    this.closeBoostShopModal();
+
+    if (frame.events.some((event) => event.type === "incomeBoostActivated")) {
+      this.completeBoostTutorial();
+      return;
+    }
+
+    this.updateTutorialOverlay(this.latestState ?? state);
+  }
+
+  private completeBoostTutorial(): void {
+    this.boostTutorialActive = false;
+    this.boostTutorialCompleted = true;
+    this.boostTutorialStep = "shop";
+    this.boostTutorialInventoryActivateTarget = undefined;
+    this.boostTutorialInventoryInstanceId = undefined;
+    this.saveTutorialProgress();
+    this.destroyTutorialOverlay();
   }
 
   private dismissManagerBoostHint(): void {
@@ -6642,6 +7843,16 @@ function getTutorialCopy(
         title: "Boost all managers",
         body: "This button activates every ready manager ability at once."
       };
+    case "boostShopUnlock":
+      return {
+        title: "Boosts unlocked",
+        body: "Boosts multiply income while playing and offline. Claim the daily free boost to try one now."
+      };
+    case "boostInventoryActivate":
+      return {
+        title: "Activate the boost",
+        body: "Your free boost is in the inventory. Activate it now; boosts with the same multiplier can stack their time."
+      };
   }
 }
 
@@ -6778,6 +7989,134 @@ function feedbackTextStyle(fontSize: number, color: string): Phaser.Types.GameOb
     stroke: "#40270f",
     strokeThickness: 4
   };
+}
+
+function getBoostVisualStyle(multiplier: number): {
+  key: string;
+  fill: number;
+  innerFill: number;
+  line: number;
+  accent: number;
+} {
+  if (multiplier >= 1000) {
+    return { key: "mythic", fill: 0xf6d34f, innerFill: 0xffffff, line: 0xfff0a3, accent: 0xff5f49 };
+  }
+
+  if (multiplier >= 100) {
+    return { key: "legendary", fill: 0xe4892f, innerFill: 0xffe2a4, line: 0xffcf67, accent: 0xfff2bc };
+  }
+
+  if (multiplier >= 20) {
+    return { key: "epic", fill: 0x9c4f98, innerFill: 0xf0a6e8, line: 0xffc2f2, accent: 0xffe27b };
+  }
+
+  if (multiplier >= 8) {
+    return { key: "rare", fill: 0x2782a5, innerFill: 0x7ee2ff, line: 0xbaf2ff, accent: 0xf8d981 };
+  }
+
+  if (multiplier >= 2) {
+    return { key: "common", fill: 0xb87333, innerFill: 0xf1c16b, line: 0xffdd91, accent: 0x9df1bd };
+  }
+
+  return { key: "empty", fill: 0x273943, innerFill: 0x49626c, line: 0x94a7ad, accent: 0xbdd2d8 };
+}
+
+function getOctagonPoints(centerX: number, centerY: number, radius: number): Phaser.Geom.Point[] {
+  const points: Phaser.Geom.Point[] = [];
+
+  for (let index = 0; index < 8; index += 1) {
+    const angle = -Math.PI / 8 + index * Math.PI / 4;
+    points.push(new Phaser.Geom.Point(centerX + Math.cos(angle) * radius, centerY + Math.sin(angle) * radius));
+  }
+
+  return points;
+}
+
+function getMaxBoostEntry<T extends BoostDefinition>(entries: Array<T & { chance: number }>): (T & { chance: number }) | undefined {
+  return entries.reduce<(T & { chance: number }) | undefined>(
+    (best, entry) => best === undefined || entry.multiplier > best.multiplier ? entry : best,
+    undefined
+  );
+}
+
+function getMostLikelyBoostEntry<T extends BoostDefinition>(entries: Array<T & { chance: number }>): (T & { chance: number }) | undefined {
+  return entries.reduce<(T & { chance: number }) | undefined>(
+    (best, entry) => best === undefined || entry.chance > best.chance ? entry : best,
+    undefined
+  );
+}
+
+function createBoostInventoryStacks(boosts: IncomeBoostRuntimeState[]): BoostInventoryStack[] {
+  const stacksByKey = new Map<string, BoostInventoryStack>();
+
+  for (const boost of boosts) {
+    const key = `${boost.multiplier}|${boost.durationSeconds}`;
+    const existing = stacksByKey.get(key);
+
+    if (existing === undefined) {
+      stacksByKey.set(key, {
+        key,
+        multiplier: boost.multiplier,
+        durationSeconds: boost.durationSeconds,
+        boosts: [boost]
+      });
+      continue;
+    }
+
+    existing.boosts.push(boost);
+  }
+
+  return [...stacksByKey.values()].sort((left, right) => {
+    if (left.multiplier !== right.multiplier) {
+      return right.multiplier - left.multiplier;
+    }
+
+    return right.durationSeconds - left.durationSeconds;
+  });
+}
+
+function formatBoostMultiplier(multiplier: number): string {
+  return `x${formatPlainMultiplier(multiplier)}`;
+}
+
+function formatPlainMultiplier(multiplier: number): string {
+  if (!Number.isFinite(multiplier)) {
+    return String(multiplier);
+  }
+
+  if (Number.isInteger(multiplier)) {
+    return String(multiplier);
+  }
+
+  return formatSignificantNumber(multiplier);
+}
+
+function formatPercent(chance: number): string {
+  const percent = chance * 100;
+
+  if (percent >= 10) {
+    return `${Math.round(percent)}%`;
+  }
+
+  if (percent >= 1) {
+    return `${percent.toFixed(1)}%`;
+  }
+
+  return `${percent.toFixed(2)}%`;
+}
+
+function formatBoostDurationRange(entries: Array<BoostDefinition & { chance: number }>): string {
+  if (entries.length === 0) {
+    return "";
+  }
+
+  const durations = entries.map((entry) => entry.durationSeconds);
+  const minDuration = Math.min(...durations);
+  const maxDuration = Math.max(...durations);
+
+  return minDuration === maxDuration
+    ? formatDuration(minDuration)
+    : `${formatDuration(minDuration)} - ${formatDuration(maxDuration)}`;
 }
 
 function getUpgradeDisplay(balance: BalanceConfig, target: UpgradeTarget, state: GameState): UpgradeCardDisplay {

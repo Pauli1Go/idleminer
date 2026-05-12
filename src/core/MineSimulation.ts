@@ -8,6 +8,13 @@ import {
   getWarehouseStats,
   roundForState
 } from "./balance.ts";
+import {
+  drawBoostDefinition,
+  getBoostBalanceConfig,
+  getBoostDrawOdds,
+  getNextLocalCalendarDayStart,
+  isSameLocalCalendarDay
+} from "./boosts.ts";
 import type {
   BalanceConfig,
   ElevatorStats,
@@ -16,6 +23,13 @@ import type {
   MineShaftStats,
   WarehouseStats
 } from "./balance.ts";
+import type {
+  BoostDefinition,
+  BoostPurchaseTier,
+  BoostSystemState,
+  IncomeBoostRuntimeState,
+  SaveGameBoostState
+} from "./boosts.ts";
 import { Elevator } from "./entities/Elevator.ts";
 import { MineShaft } from "./entities/MineShaft.ts";
 import { Warehouse } from "./entities/Warehouse.ts";
@@ -70,6 +84,12 @@ import {
 export interface MineSimulationOptions {
   fixedStepSeconds?: number;
   isDebug?: boolean;
+}
+
+export interface PurchaseBoostOptions {
+  now?: number;
+  randomValue?: number;
+  useFreeSpin?: boolean;
 }
 
 interface MineRuntime {
@@ -136,6 +156,11 @@ export class MineSimulation {
     | undefined;
   private money: number;
   private superCash: number;
+  private hasEarnedSuperCash: boolean;
+  private incomeBoosts: IncomeBoostRuntimeState[] = [];
+  private queuedIncomeBoosts: IncomeBoostRuntimeState[] = [];
+  private lastFreeCheapBoostSpinAt: number | null = null;
+  private boostInstanceSequence = 0;
   private activeMineId: MineId = DEFAULT_ACTIVE_MINE_ID;
 
   get mineShafts(): MineShaft[] {
@@ -213,6 +238,7 @@ export class MineSimulation {
       
     this.money = roundForState(startingMoney);
     this.superCash = this.isDebug ? DEBUG_SUPER_CASH : 0;
+    this.hasEarnedSuperCash = this.superCash > 0;
 
     for (const definition of this.mineDefinitions) {
       const isUnlocked = definition.mineId === DEFAULT_ACTIVE_MINE_ID;
@@ -323,6 +349,8 @@ export class MineSimulation {
         timeSeconds: roundForState(this.timeSeconds),
         money: roundForState(this.money),
         superCash: roundForState(this.superCash),
+        hasEarnedSuperCash: this.hasEarnedSuperCash,
+        boosts: this.exportBoostSaveState(),
         activeMineId: this.activeMineId,
         mines: this.mineDefinitions.map((definition) => this.exportMineSaveState(this.minesById[definition.mineId]))
       }
@@ -345,9 +373,12 @@ export class MineSimulation {
     this.timeSeconds = roundForState(requireNonNegativeNumber(state.timeSeconds, "state.timeSeconds"));
     this.money = roundForState(requireNonNegativeNumber(state.money, "state.money"));
     this.superCash = roundForState(requireNonNegativeNumber(state.superCash, "state.superCash"));
+    this.hasEarnedSuperCash = state.hasEarnedSuperCash || this.superCash > 0;
     if (this.isDebug) {
       this.superCash = Math.max(this.superCash, DEBUG_SUPER_CASH);
+      this.hasEarnedSuperCash = true;
     }
+    this.importBoostSaveState(state.boosts);
     this.accumulatorSeconds = 0;
     this.eventSequence = 0;
 
@@ -364,6 +395,7 @@ export class MineSimulation {
         : this.mineDefinitions.find((definition) => this.minesById[definition.mineId]?.isUnlocked)?.mineId
           ?? DEFAULT_ACTIVE_MINE_ID;
     this.superCash = roundForState(Math.max(this.superCash, this.getRecoveredSuperCashTotal()));
+    this.hasEarnedSuperCash = this.hasEarnedSuperCash || this.superCash > 0;
 
     return this.applyOfflineProgress(record.savedAt, loadedAt);
   }
@@ -607,6 +639,7 @@ export class MineSimulation {
 
     const previousSuperCash = this.superCash;
     this.superCash = roundForState(this.superCash + amount);
+    this.hasEarnedSuperCash = true;
     this.emit(
       {
         type: "superCashAwarded",
@@ -619,7 +652,7 @@ export class MineSimulation {
     );
   }
 
-  private spendSuperCash(amount: number, source: "depthBlockadeSkip", events: SimulationEvent[]): void {
+  private spendSuperCash(amount: number, source: "depthBlockadeSkip" | "boostShop", events: SimulationEvent[]): void {
     if (amount <= 0) {
       return;
     }
@@ -636,6 +669,326 @@ export class MineSimulation {
       },
       events
     );
+  }
+
+  canClaimDailyCheapBoostSpin(now = Date.now()): boolean {
+    const safeNow = this.normalizeWallClockTimestamp(now);
+
+    if (this.lastFreeCheapBoostSpinAt === null) {
+      return true;
+    }
+
+    if (safeNow + Number.EPSILON < this.lastFreeCheapBoostSpinAt) {
+      return false;
+    }
+
+    return !isSameLocalCalendarDay(this.lastFreeCheapBoostSpinAt, safeNow);
+  }
+
+  purchaseBoost(tier: BoostPurchaseTier, options: PurchaseBoostOptions = {}): SimulationEvent[] {
+    const events: SimulationEvent[] = [];
+    const boostBalance = getBoostBalanceConfig(this.balance);
+    const tierConfig = boostBalance.purchases[tier];
+
+    if (tierConfig === undefined) {
+      this.emitActionFailed("purchaseBoost", "invalid_boost_tier", "This boost purchase is not available.", events);
+      return events;
+    }
+
+    const now = this.normalizeWallClockTimestamp(options.now ?? Date.now());
+    const useFreeSpin =
+      tier === "cheap" &&
+      (options.useFreeSpin ?? true) &&
+      this.canClaimDailyCheapBoostSpin(now);
+    const cost = useFreeSpin ? 0 : tierConfig.cost;
+
+    if (this.superCash + Number.EPSILON < cost) {
+      this.emitActionFailed("purchaseBoost", "not_enough_super_cash", "Not enough Super Cash for this boost.", events);
+      return events;
+    }
+
+    if (cost > 0) {
+      this.spendSuperCash(cost, "boostShop", events);
+    }
+
+    if (useFreeSpin) {
+      this.lastFreeCheapBoostSpinAt = now;
+    }
+
+    const definition = drawBoostDefinition(tierConfig.drawTable, options.randomValue ?? Math.random());
+    const boost = this.createIncomeBoost(definition, tier, now, useFreeSpin ? "freeSpin" : "superCash");
+    this.queuedIncomeBoosts.push(boost);
+
+    this.emit(
+      {
+        type: "incomeBoostPurchased",
+        tier,
+        cost,
+        usedFreeSpin: useFreeSpin,
+        boost: this.cloneIncomeBoost(boost),
+        currentSuperCash: this.superCash
+      },
+      events
+    );
+
+    return events;
+  }
+
+  purchaseCheapBoost(options: PurchaseBoostOptions = {}): SimulationEvent[] {
+    return this.purchaseBoost("cheap", options);
+  }
+
+  purchaseExpensiveBoost(options: PurchaseBoostOptions = {}): SimulationEvent[] {
+    return this.purchaseBoost("expensive", options);
+  }
+
+  activateNextIncomeBoost(): SimulationEvent[] {
+    return this.activateIncomeBoost();
+  }
+
+  activateIncomeBoost(instanceId?: string): SimulationEvent[] {
+    const events: SimulationEvent[] = [];
+    const boostIndex = instanceId === undefined
+      ? 0
+      : this.queuedIncomeBoosts.findIndex((boost) => boost.instanceId === instanceId);
+
+    if (boostIndex < 0 || boostIndex >= this.queuedIncomeBoosts.length) {
+      this.emitActionFailed("activateBoost", "no_boost_available", "No boost is ready to activate.", events);
+      return events;
+    }
+
+    const boost = this.queuedIncomeBoosts[boostIndex];
+    const activeBoost = this.incomeBoosts[0];
+
+    if (activeBoost !== undefined && activeBoost.multiplier !== boost.multiplier) {
+      this.emitActionFailed(
+        "activateBoost",
+        "boost_multiplier_mismatch",
+        "Only boosts with the active multiplier can be combined.",
+        events
+      );
+      return events;
+    }
+
+    this.queuedIncomeBoosts.splice(boostIndex, 1);
+
+    if (activeBoost !== undefined) {
+      activeBoost.durationSeconds = roundForState(activeBoost.durationSeconds + boost.durationSeconds);
+      activeBoost.remainingSeconds = roundForState(activeBoost.remainingSeconds + boost.remainingSeconds);
+
+      this.emit(
+        {
+          type: "incomeBoostActivated",
+          boost: this.cloneIncomeBoost(activeBoost)
+        },
+        events
+      );
+
+      return events;
+    }
+
+    boost.activatedAt = roundForState(this.timeSeconds);
+    this.incomeBoosts.push(boost);
+
+    this.emit(
+      {
+        type: "incomeBoostActivated",
+        boost: this.cloneIncomeBoost(boost)
+      },
+      events
+    );
+
+    return events;
+  }
+
+  private exportBoostSaveState(): SaveGameBoostState {
+    return {
+      incomeBoosts: this.incomeBoosts.map((boost) => this.cloneIncomeBoost(boost)),
+      queuedIncomeBoosts: this.queuedIncomeBoosts.map((boost) => this.cloneIncomeBoost(boost)),
+      lastFreeCheapBoostSpinAt: this.lastFreeCheapBoostSpinAt
+    };
+  }
+
+  private importBoostSaveState(state: SaveGameBoostState): void {
+    this.lastFreeCheapBoostSpinAt = state.lastFreeCheapBoostSpinAt;
+    const restoredIncomeBoosts = state.incomeBoosts
+      .filter((boost) => boost.remainingSeconds > EPSILON)
+      .map((boost, index) => ({
+        ...boost,
+        durationSeconds: roundForState(boost.durationSeconds),
+        remainingSeconds: roundForState(Math.min(boost.remainingSeconds, boost.durationSeconds)),
+        activatedAt: index === 0 ? boost.activatedAt ?? roundForState(this.timeSeconds) : null
+      }));
+    this.incomeBoosts = restoredIncomeBoosts.slice(0, 1);
+    this.queuedIncomeBoosts = [
+      ...restoredIncomeBoosts.slice(1).map((boost) => ({ ...boost, activatedAt: null })),
+      ...state.queuedIncomeBoosts
+      .filter((boost) => boost.remainingSeconds > EPSILON)
+      .map((boost) => ({
+        ...boost,
+        durationSeconds: roundForState(boost.durationSeconds),
+        remainingSeconds: roundForState(Math.min(boost.remainingSeconds, boost.durationSeconds)),
+        activatedAt: null
+      }))
+    ];
+    this.boostInstanceSequence = [...this.incomeBoosts, ...this.queuedIncomeBoosts].reduce(
+      (max, boost) => Math.max(max, this.parseBoostInstanceSequence(boost.instanceId)),
+      0
+    );
+  }
+
+  private createIncomeBoost(
+    definition: BoostDefinition,
+    tier: BoostPurchaseTier,
+    purchasedAt: number,
+    source: IncomeBoostRuntimeState["source"]
+  ): IncomeBoostRuntimeState {
+    return {
+      instanceId: `income-boost-${++this.boostInstanceSequence}`,
+      definitionId: definition.id,
+      purchaseTier: tier,
+      multiplier: definition.multiplier,
+      durationSeconds: roundForState(definition.durationSeconds),
+      remainingSeconds: roundForState(definition.durationSeconds),
+      purchasedAt,
+      activatedAt: null,
+      source
+    };
+  }
+
+  private cloneIncomeBoost(boost: IncomeBoostRuntimeState): IncomeBoostRuntimeState {
+    return {
+      ...boost,
+      durationSeconds: roundForState(boost.durationSeconds),
+      remainingSeconds: roundForState(boost.remainingSeconds),
+      activatedAt: boost.activatedAt === null ? null : roundForState(boost.activatedAt)
+    };
+  }
+
+  private parseBoostInstanceSequence(instanceId: string): number {
+    const prefix = "income-boost-";
+
+    if (!instanceId.startsWith(prefix)) {
+      return 0;
+    }
+
+    const value = Number(instanceId.slice(prefix.length));
+    return Number.isInteger(value) && value > 0 ? value : 0;
+  }
+
+  private normalizeWallClockTimestamp(value: number): number {
+    return Number.isFinite(value) && value >= 0 ? value : Date.now();
+  }
+
+  private getCurrentIncomeBoostMultiplier(): number {
+    return this.incomeBoosts[0]?.multiplier ?? 1;
+  }
+
+  private getAverageIncomeBoostMultiplier(durationSeconds: number): number {
+    if (durationSeconds <= EPSILON) {
+      return this.getCurrentIncomeBoostMultiplier();
+    }
+
+    let remainingSeconds = durationSeconds;
+    let weightedMultiplierSeconds = 0;
+
+    for (const boost of this.incomeBoosts) {
+      if (remainingSeconds <= EPSILON) {
+        break;
+      }
+
+      const boostSeconds = Math.min(remainingSeconds, Math.max(0, boost.remainingSeconds));
+      weightedMultiplierSeconds += boostSeconds * boost.multiplier;
+      remainingSeconds = roundForState(remainingSeconds - boostSeconds);
+    }
+
+    if (remainingSeconds > EPSILON) {
+      weightedMultiplierSeconds += remainingSeconds;
+    }
+
+    return roundForState(weightedMultiplierSeconds / durationSeconds);
+  }
+
+  private applyIncomeBoostToMoney(moneyEarned: number, durationSeconds: number): number {
+    if (moneyEarned <= EPSILON) {
+      return 0;
+    }
+
+    return roundForState(moneyEarned * this.getAverageIncomeBoostMultiplier(durationSeconds));
+  }
+
+  private tickIncomeBoosts(deltaSeconds: number, events?: SimulationEvent[]): void {
+    if (deltaSeconds <= EPSILON || this.incomeBoosts.length === 0) {
+      return;
+    }
+
+    let remainingDeltaSeconds = deltaSeconds;
+
+    while (remainingDeltaSeconds > EPSILON && this.incomeBoosts.length > 0) {
+      const activeBoost = this.incomeBoosts[0];
+
+      if (activeBoost.activatedAt === null) {
+        activeBoost.activatedAt = roundForState(this.timeSeconds);
+      }
+
+      if (activeBoost.remainingSeconds > remainingDeltaSeconds + EPSILON) {
+        activeBoost.remainingSeconds = roundForState(activeBoost.remainingSeconds - remainingDeltaSeconds);
+        return;
+      }
+
+      const expiredBoost = this.cloneIncomeBoost({
+        ...activeBoost,
+        remainingSeconds: 0
+      });
+      remainingDeltaSeconds = roundForState(remainingDeltaSeconds - activeBoost.remainingSeconds);
+      this.incomeBoosts.shift();
+
+      if (events !== undefined) {
+        this.emit(
+          {
+            type: "incomeBoostExpired",
+            boost: expiredBoost
+          },
+          events
+        );
+      }
+
+    }
+  }
+
+  private buildBoostSystemState(now: number): BoostSystemState {
+    const activeBoost = this.incomeBoosts[0] ? this.cloneIncomeBoost(this.incomeBoosts[0]) : null;
+    const queuedBoosts = this.queuedIncomeBoosts.map((boost) => this.cloneIncomeBoost(boost));
+    const isFreeSpinAvailable = this.canClaimDailyCheapBoostSpin(now);
+    const shop = Object.fromEntries(
+      (["cheap", "expensive"] as const).map((tier) => {
+        const config = getBoostBalanceConfig(this.balance).purchases[tier];
+        const canUseFreeSpin = tier === "cheap" && isFreeSpinAvailable;
+
+        return [
+          tier,
+          {
+            tier,
+            cost: config.cost,
+            canAfford: canUseFreeSpin || this.superCash + Number.EPSILON >= config.cost,
+            canUseFreeSpin,
+            drawOdds: getBoostDrawOdds(config.drawTable)
+          }
+        ];
+      })
+    ) as BoostSystemState["shop"];
+
+    return {
+      incomeMultiplier: this.getCurrentIncomeBoostMultiplier(),
+      activeBoost,
+      queuedBoosts,
+      dailyFreeCheapBoost: {
+        isAvailable: isFreeSpinAvailable,
+        lastClaimedAt: this.lastFreeCheapBoostSpinAt,
+        nextAvailableAt: isFreeSpinAvailable ? now : getNextLocalCalendarDayStart(now)
+      },
+      shop
+    };
   }
 
   private getSuperCashForLevelMilestones(previousLevel: number, currentLevel: number): number {
@@ -1535,7 +1888,7 @@ export class MineSimulation {
     return events;
   }
 
-  getState(buyMode: UpgradeBuyMode = 1): GameState {
+  getState(buyMode: UpgradeBuyMode = 1, now: number = Date.now()): GameState {
     const activeSnapshot = this.buildMineStateSnapshot(this.getActiveMine());
     const upgrades = this.buildUpgradeState(buyMode);
     const mines = Object.fromEntries(
@@ -1549,6 +1902,8 @@ export class MineSimulation {
       activeMineId: this.activeMineId,
       cash: roundForState(this.money),
       superCash: roundForState(this.superCash),
+      hasEarnedSuperCash: this.hasEarnedSuperCash,
+      boosts: this.buildBoostSystemState(this.normalizeWallClockTimestamp(now)),
       mines,
       timeSeconds: roundForState(this.timeSeconds),
       money: roundForState(this.money),
@@ -1887,7 +2242,9 @@ export class MineSimulation {
     this.runAutomationForWarehouse(events);
 
     for (const sale of sales) {
-      const moneyEarned = roundForState(sale.soldOre * this.balance.economy.sellPricePerOre);
+      const moneyEarned = roundForState(
+        sale.soldOre * this.balance.economy.sellPricePerOre * this.getCurrentIncomeBoostMultiplier()
+      );
       const previousMoney = this.money;
       this.money = roundForState(this.money + moneyEarned);
       this.getActiveMine().totals.moneyEarned = roundForState(this.getActiveMine().totals.moneyEarned + moneyEarned);
@@ -1916,6 +2273,7 @@ export class MineSimulation {
 
     this.tickManagerTimersForAllMines(deltaSeconds, events);
     this.syncMineTotals();
+    this.tickIncomeBoosts(deltaSeconds, events);
   }
 
   private syncMineTotals(mine: MineRuntime = this.getActiveMine()): void {
@@ -2787,7 +3145,8 @@ export class MineSimulation {
         this.baseWarehouseStats.throughputPerSecond
       );
       const oreSold = roundForState(bottleneckThroughput * offlineSeconds * (1 / this.balance.economy.offlineEarningsDivisor));
-      const moneyEarned = roundForState(oreSold * this.balance.economy.sellPricePerOre);
+      const baseMoneyEarned = roundForState(oreSold * this.balance.economy.sellPricePerOre);
+      const moneyEarned = this.applyIncomeBoostToMoney(baseMoneyEarned, offlineSeconds);
 
       return { moneyEarned, oreSold };
     });
@@ -2827,6 +3186,7 @@ export class MineSimulation {
 
     this.tickManagerTimersForAllMines(offlineSeconds);
     this.tickBlockadeTimersForAllMines(offlineSeconds);
+    this.tickIncomeBoosts(offlineSeconds);
 
     if (totalMoneyEarned <= EPSILON) {
       return null;

@@ -1,4 +1,5 @@
 import type { ElevatorStats, MineShaftStats, WarehouseStats } from "./balance.ts";
+import type { BoostSystemState } from "./boosts.ts";
 import type { ManagerSystemState } from "./managers.ts";
 import type { MineId, MinePrestigeData } from "./mines.ts";
 
@@ -144,6 +145,8 @@ export interface GameState {
   activeMineId: MineId;
   cash: number;
   superCash: number;
+  hasEarnedSuperCash: boolean;
+  boosts: BoostSystemState;
   mines: Record<MineId, MineStateSnapshot>;
   timeSeconds: number;
   money: number;

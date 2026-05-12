@@ -1,3 +1,6 @@
+import { assertValidBoostBalance, getBoostBalanceConfig } from "./boosts.ts";
+import type { BoostBalanceConfig } from "./boosts.ts";
+
 export type ManagerArea = "mineShaft" | "elevator" | "warehouse";
 export type ManagerRank = "junior" | "senior" | "executive";
 export type ManagerAbilityType =
@@ -149,6 +152,7 @@ export interface BalanceConfig {
     };
   };
   normalManagerDrawChances: Record<ManagerRank, number> & { notes?: string };
+  boosts?: BoostBalanceConfig;
   mineShaftBlockades?: {
     enabled: boolean;
     blockadeEveryShafts: number;
@@ -220,6 +224,8 @@ export function assertValidBalance(balance: BalanceConfig): void {
   if (balance.economy.offlineEarningsDivisor <= 0) {
     throw new Error("Invalid balance value: offlineEarningsDivisor must be greater than 0.");
   }
+
+  assertValidBoostBalance(getBoostBalanceConfig(balance));
 }
 
 export function getMineShaftStats(balance: BalanceConfig, level: number, shaftId = 1): MineShaftStats {

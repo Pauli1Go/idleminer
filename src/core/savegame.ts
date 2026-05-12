@@ -1,4 +1,6 @@
 import type { ManagerAbilityType, ManagerArea, ManagerRank } from "./balance.ts";
+import { createEmptyBoostSaveState } from "./boosts.ts";
+import type { BoostPurchaseTier, IncomeBoostRuntimeState, SaveGameBoostState } from "./boosts.ts";
 import type { MineId } from "./mines.ts";
 import { DEFAULT_ACTIVE_MINE_ID, MINE_DEFINITIONS } from "./mines.ts";
 import type { ManagerState } from "./managers.ts";
@@ -150,6 +152,8 @@ export interface SaveGameStateV7 {
   timeSeconds: number;
   money: number;
   superCash: number;
+  hasEarnedSuperCash?: boolean;
+  boosts: SaveGameBoostState;
   activeMineId: MineId;
   mines: SaveGameMineStateV7[];
 }
@@ -435,10 +439,13 @@ function readStateV7(value: unknown): SaveGameStateV7 | null {
   const timeSeconds = readNonNegativeNumber(value.timeSeconds);
   const money = readNonNegativeNumber(value.money);
   const superCash = value.superCash === undefined ? 0 : readNonNegativeNumber(value.superCash);
+  const hasEarnedSuperCash =
+    value.hasEarnedSuperCash === undefined ? superCash !== null && superCash > 0 : readBoolean(value.hasEarnedSuperCash);
+  const boosts = readBoostsState(value.boosts) ?? createEmptyBoostSaveState();
   const activeMineId = readString(value.activeMineId);
   const mines = readMinesV7(value.mines);
 
-  if (timeSeconds === null || money === null || superCash === null || activeMineId === null || mines === null) {
+  if (timeSeconds === null || money === null || superCash === null || hasEarnedSuperCash === null || activeMineId === null || mines === null) {
     return null;
   }
 
@@ -446,6 +453,8 @@ function readStateV7(value: unknown): SaveGameStateV7 | null {
     timeSeconds,
     money,
     superCash,
+    hasEarnedSuperCash,
+    boosts,
     activeMineId,
     mines
   };
@@ -535,6 +544,8 @@ function upgradeLegacyStateToV7(state: SaveGameStateV3): SaveGameStateV7 {
     timeSeconds: state.timeSeconds,
     money: state.money,
     superCash: 0,
+    hasEarnedSuperCash: false,
+    boosts: createEmptyBoostSaveState(),
     activeMineId: coalMineId,
     mines: MINE_DEFINITIONS.map((definition) => {
       if (definition.mineId === coalMineId) {
@@ -964,6 +975,105 @@ function readMineV7(value: unknown): SaveGameMineStateV7 | null {
   };
 }
 
+function readBoostsState(value: unknown): SaveGameBoostState | null {
+  if (value === undefined || value === null) {
+    return createEmptyBoostSaveState();
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const incomeBoosts = readIncomeBoosts(value.incomeBoosts);
+  const queuedIncomeBoosts = readIncomeBoosts(value.queuedIncomeBoosts);
+  const lastFreeCheapBoostSpinAt = readNullableNonNegativeNumber(value.lastFreeCheapBoostSpinAt);
+
+  if (incomeBoosts === null || queuedIncomeBoosts === null || lastFreeCheapBoostSpinAt === undefined) {
+    return null;
+  }
+
+  return {
+    incomeBoosts,
+    queuedIncomeBoosts,
+    lastFreeCheapBoostSpinAt
+  };
+}
+
+function readIncomeBoosts(value: unknown): IncomeBoostRuntimeState[] | null {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const boosts: IncomeBoostRuntimeState[] = [];
+
+  for (const entry of value) {
+    const boost = readIncomeBoostRuntimeState(entry);
+
+    if (boost === null) {
+      return null;
+    }
+
+    boosts.push(boost);
+  }
+
+  return boosts;
+}
+
+function readIncomeBoostRuntimeState(value: unknown): IncomeBoostRuntimeState | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const instanceId = readString(value.instanceId);
+  const definitionId = readString(value.definitionId);
+  const purchaseTier = readBoostPurchaseTier(value.purchaseTier);
+  const multiplier = readNonNegativeNumber(value.multiplier);
+  const durationSeconds = readNonNegativeNumber(value.durationSeconds);
+  const remainingSeconds = readNonNegativeNumber(value.remainingSeconds);
+  const purchasedAt = readNonNegativeNumber(value.purchasedAt);
+  const activatedAt = readNullableNonNegativeNumber(value.activatedAt);
+  const source = readBoostSource(value.source) ?? "superCash";
+
+  if (
+    instanceId === null ||
+    definitionId === null ||
+    purchaseTier === null ||
+    multiplier === null ||
+    durationSeconds === null ||
+    remainingSeconds === null ||
+    purchasedAt === null ||
+    activatedAt === undefined ||
+    multiplier < 2 ||
+    durationSeconds <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    instanceId,
+    definitionId,
+    purchaseTier,
+    multiplier,
+    durationSeconds,
+    remainingSeconds,
+    purchasedAt,
+    activatedAt,
+    source
+  };
+}
+
+function readBoostPurchaseTier(value: unknown): BoostPurchaseTier | null {
+  return value === "cheap" || value === "expensive" ? value : null;
+}
+
+function readBoostSource(value: unknown): IncomeBoostRuntimeState["source"] | null {
+  return value === "freeSpin" || value === "superCash" ? value : null;
+}
+
 function readMineElevatorV7(value: unknown): SaveGameMineStateV7["elevator"] | null {
   if (!isRecord(value)) {
     return null;
@@ -1284,6 +1394,16 @@ function readNullableNumber(value: unknown): number | null | undefined {
   }
 
   return readFiniteNumber(value);
+}
+
+function readNullableNonNegativeNumber(value: unknown): number | null | undefined {
+  const num = readNullableNumber(value);
+
+  if (num === undefined || num === null) {
+    return num;
+  }
+
+  return num >= 0 ? num : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

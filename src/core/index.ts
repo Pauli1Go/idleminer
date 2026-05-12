@@ -1,4 +1,5 @@
 export * from "./balance.ts";
+export * from "./boosts.ts";
 export * from "./events.ts";
 export * from "./MineSimulation.ts";
 export * from "./managers.ts";
