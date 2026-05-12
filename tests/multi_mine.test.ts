@@ -64,6 +64,24 @@ function createSimulationWithAutomatedInactiveGold(): MineSimulation {
   return simulation;
 }
 
+function createSimulationWithInactiveGoldBlockadeRemoval(fixedStepSeconds = 1): MineSimulation {
+  const goldUnlockCost = getMineDefinitionById("gold").unlockCost;
+  const balance = cloneBalance();
+  balance.economy.startingMoney = goldUnlockCost + 1e20;
+  const simulation = new MineSimulation(balance, { fixedStepSeconds });
+
+  simulation.unlockMine("gold");
+  simulation.setActiveMine("gold");
+
+  for (const shaft of simulation.mineShafts.slice(0, 5)) {
+    shaft.unlock();
+  }
+
+  simulation.removeDepthBlockade("blockade_5_6");
+  simulation.setActiveMine("coal");
+  return simulation;
+}
+
 function createSaveWithBoostedAutomatedInactiveGold(savedAt = 1000): SaveGameRecord {
   const simulation = createSimulationWithAutomatedInactiveGold();
   const save = simulation.exportSaveGame(savedAt);
@@ -394,6 +412,33 @@ test("inaktive Manager-Timer laufen nach geschlossenem Spiel weiter", () => {
   assert.equal(gold.currentValues.mineShaft.throughputPerSecond, gold.baseValues.mineShaft.throughputPerSecond);
   assert.equal(gold.currentValues.elevator.throughputPerSecond, gold.baseValues.elevator.throughputPerSecond);
   assert.equal(gold.currentValues.warehouse.throughputPerSecond, gold.baseValues.warehouse.throughputPerSecond);
+});
+
+test("inaktive Blockade-Timer laufen im Hintergrund weiter", () => {
+  const simulation = createSimulationWithInactiveGoldBlockadeRemoval();
+  const before = simulation.getState().mines.gold.blockades["blockade_5_6"];
+  const beforeRemainingSeconds = before.remainingRemovalSeconds;
+
+  simulation.update(10);
+
+  const after = simulation.getState().mines.gold.blockades["blockade_5_6"];
+
+  assert.equal(before.isRemoving, true);
+  assert.equal(after.isRemoving, true);
+  assert.equal(after.remainingRemovalSeconds, beforeRemainingSeconds - 10);
+});
+
+test("inaktive Blockade-Timer laufen nach geschlossenem Spiel weiter", () => {
+  const simulation = createSimulationWithInactiveGoldBlockadeRemoval();
+  const saved = simulation.exportSaveGame(1000);
+  const restored = createSimulation();
+
+  restored.importSaveGame(saved, 601000);
+
+  const blockade = restored.getState().mines.gold.blockades["blockade_5_6"];
+
+  assert.equal(blockade.isRemoving, true);
+  assert.equal(blockade.remainingRemovalSeconds, 1200);
 });
 
 test("Mine-Wechsel sammelt pending Offline-Cash nicht automatisch ein", () => {

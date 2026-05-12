@@ -1881,7 +1881,7 @@ export class MineSimulation {
       this.runAutomationForMineShaft(shaft, events);
     }
 
-    this.updateBlockades(deltaSeconds, events);
+    this.tickBlockadeTimersForAllMines(deltaSeconds, events);
 
     const sales = this.warehouse.update(deltaSeconds, emit);
     this.runAutomationForWarehouse(events);
@@ -2826,7 +2826,7 @@ export class MineSimulation {
     }
 
     this.tickManagerTimersForAllMines(offlineSeconds);
-    this.updateBlockades(offlineSeconds, []);
+    this.tickBlockadeTimersForAllMines(offlineSeconds);
 
     if (totalMoneyEarned <= EPSILON) {
       return null;
@@ -3076,7 +3076,23 @@ export class MineSimulation {
     return this.isDepthGroupReachable(shaft.depthGroup);
   }
 
-  private updateBlockades(deltaSeconds: number, events: SimulationEvent[]): void {
+  private tickBlockadeTimersForAllMines(deltaSeconds: number, activeMineEvents?: SimulationEvent[]): void {
+    const activeMineId = this.activeMineId;
+
+    for (const definition of this.mineDefinitions) {
+      const mine = this.minesById[definition.mineId];
+
+      if (mine === undefined || !mine.isUnlocked) {
+        continue;
+      }
+
+      this.withMineContext(mine.mineId, () => {
+        this.updateBlockades(deltaSeconds, mine.mineId === activeMineId ? activeMineEvents : undefined);
+      });
+    }
+  }
+
+  private updateBlockades(deltaSeconds: number, events?: SimulationEvent[]): void {
     for (const blockade of Object.values(this.blockades)) {
       if (blockade.isRemoving && !blockade.isRemoved) {
         blockade.remainingRemovalSeconds = roundForState(Math.max(0, blockade.remainingRemovalSeconds - deltaSeconds));
@@ -3084,10 +3100,12 @@ export class MineSimulation {
           blockade.isRemoving = false;
           blockade.isRemoved = true;
           
-          this.emit({
-            type: "depthBlockadeRemoved",
-            blockadeId: blockade.blockadeId
-          } as any, events);
+          if (events !== undefined) {
+            this.emit({
+              type: "depthBlockadeRemoved",
+              blockadeId: blockade.blockadeId
+            } as any, events);
+          }
           
           this.syncReachability(events);
         }
@@ -3095,16 +3113,18 @@ export class MineSimulation {
     }
   }
 
-  private syncReachability(events: SimulationEvent[] = []): void {
+  private syncReachability(events?: SimulationEvent[]): void {
     for (const shaft of this.mineShafts) {
       const reachable = this.isShaftReachable(shaft.shaftId);
       if (shaft.isReachable !== reachable) {
         shaft.isReachable = reachable;
-        this.emit({
-          type: "shaftReachabilityChanged",
-          shaftId: shaft.shaftId,
-          isReachable: reachable
-        } as any, events);
+        if (events !== undefined) {
+          this.emit({
+            type: "shaftReachabilityChanged",
+            shaftId: shaft.shaftId,
+            isReachable: reachable
+          } as any, events);
+        }
       }
     }
   }
