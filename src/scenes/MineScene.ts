@@ -93,6 +93,7 @@ import {
 import { formatLargeNumber, formatCurrency, formatDuration, formatSignificantNumber } from "../core/formatters.ts";
 import { SimulationViewModel, type SimulationFrame } from "../game/SimulationViewModel.ts";
 import { IS_DEBUG } from "../debug/config.ts";
+import { saveBoostPurchaseToServer } from "../wrapperSync.ts";
 
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 720;
@@ -1314,6 +1315,7 @@ export class MineScene extends Phaser.Scene {
 
   private persistBoostPurchase(): void {
     this.viewModel.flushSave();
+    saveBoostPurchaseToServer();
 
     if (typeof window === "undefined" || window.parent === window) {
       return;

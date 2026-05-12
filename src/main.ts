@@ -6,6 +6,7 @@ import { BootScene } from "./scenes/BootScene.ts";
 import { LoadingScene } from "./scenes/LoadingScene.ts";
 import { MineScene } from "./scenes/MineScene.ts";
 import { registerAssetCache } from "./browserCache.ts";
+import { importServerSaveForEmptyLocalGame } from "./wrapperSync.ts";
 import "./style.css";
 
 function createSaveRepository(): SaveGameRepository | undefined {
@@ -22,25 +23,33 @@ function createSaveRepository(): SaveGameRepository | undefined {
 
 const saveRepository = createSaveRepository();
 
-const gameConfig: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
-  parent: "game",
-  width: 1280,
-  height: 720,
-  backgroundColor: "#17202b",
-  scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH
-  },
-  render: {
-    antialias: true,
-    pixelArt: false,
-    roundPixels: false
-  },
-  scene: [new BootScene(), new LoadingScene(), new MineScene(balance as BalanceConfig, saveRepository)]
-};
+let game: Phaser.Game | undefined;
 
-const game = new Phaser.Game(gameConfig);
+async function startGame(): Promise<void> {
+  await importServerSaveForEmptyLocalGame(saveRepository);
+
+  const gameConfig: Phaser.Types.Core.GameConfig = {
+    type: Phaser.AUTO,
+    parent: "game",
+    width: 1280,
+    height: 720,
+    backgroundColor: "#17202b",
+    scale: {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+    render: {
+      antialias: true,
+      pixelArt: false,
+      roundPixels: false
+    },
+    scene: [new BootScene(), new LoadingScene(), new MineScene(balance as BalanceConfig, saveRepository)]
+  };
+
+  game = new Phaser.Game(gameConfig);
+}
+
+void startGame();
 
 void registerAssetCache().catch((error: unknown) => {
   console.warn("Asset cache registration failed.", error);
@@ -48,6 +57,6 @@ void registerAssetCache().catch((error: unknown) => {
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    game.destroy(true);
+    game?.destroy(true);
   });
 }
