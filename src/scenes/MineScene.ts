@@ -92,6 +92,7 @@ import {
 } from "../core/index.ts";
 import { formatLargeNumber, formatCurrency, formatDuration, formatSignificantNumber } from "../core/formatters.ts";
 import { SimulationViewModel, type SimulationFrame } from "../game/SimulationViewModel.ts";
+import { shouldAutoCompleteTutorialForLegacySave, shouldReplayTutorialForEarlyGameState } from "../game/tutorialProgress.ts";
 import { IS_DEBUG } from "../debug/config.ts";
 import { saveBoostPurchaseToServer } from "../wrapperSync.ts";
 
@@ -869,6 +870,19 @@ interface ManagerPanelScrollbar extends Phaser.GameObjects.Graphics {
   scrollbarHeight?: number;
 }
 
+interface BoostInventoryContentContainer extends Phaser.GameObjects.Container {
+  isBoostInventoryContentContainer?: true;
+  contentAreaY?: number;
+  contentAreaHeight?: number;
+  totalContentHeight?: number;
+  scrollInteractiveZones?: Phaser.GameObjects.Zone[];
+}
+
+interface BoostInventoryScrollbar extends Phaser.GameObjects.Graphics {
+  isBoostInventoryScrollbar?: true;
+  scrollbarHeight?: number;
+}
+
 interface WorldClickTargetUi {
   zone: Phaser.GameObjects.Zone;
   outline: Phaser.GameObjects.Rectangle;
@@ -1082,6 +1096,7 @@ export class MineScene extends Phaser.Scene {
   private activeBoostPulseTween: Phaser.Tweens.Tween | undefined;
   private boostPurchaseAnimationActive = false;
   private boostModalMode: "shop" | "inventory" | undefined;
+  private boostInventoryScrollY = 0;
   private boostTutorialShopDrawTarget: Phaser.Geom.Rectangle | undefined;
   private boostTutorialAutoCollectedOfflineCash = false;
   private activeMineOfflineCashModal: { mineId: MineId; collectAndClose: () => void } | undefined;
@@ -1158,13 +1173,7 @@ export class MineScene extends Phaser.Scene {
       isDebug: IS_DEBUG
     });
     this.loadTutorialProgress();
-
-    if (this.hasExistingSaveGame && !this.hasTutorialProgressRecord) {
-      this.tutorialCompleted = true;
-      this.tutorialProgressIndex = tutorialStepOrder.length;
-      this.tutorialManagerUnlockAcknowledged = true;
-      this.saveTutorialProgress();
-    }
+    this.initializeTutorialProgress(this.viewModel.getInitialFrame().state);
   }
 
   preload(): void {
@@ -1621,6 +1630,11 @@ export class MineScene extends Phaser.Scene {
 
       const pointer = this.input.activePointer;
 
+      if (this.boostModalMode === "inventory") {
+        this.scrollBoostInventory(deltaY);
+        return;
+      }
+
       if (this.activeManagerPanelArea !== null && this.managerPanel !== undefined) {
         if (
           pointer.x >= MANAGER_PANEL_X &&
@@ -1683,6 +1697,40 @@ export class MineScene extends Phaser.Scene {
     scrollbar.setY(contentAreaY + 5 + scrollPercent * (contentAreaHeight - scrollbarHeight - 10));
   }
 
+  private scrollBoostInventory(deltaY: number): void {
+    const contentContainer = this.getBoostInventoryContentContainer();
+
+    if (contentContainer === undefined) {
+      return;
+    }
+
+    const contentAreaHeight = contentContainer.contentAreaHeight ?? 0;
+    const contentAreaY = contentContainer.contentAreaY ?? 0;
+    const totalContentHeight = contentContainer.totalContentHeight ?? 0;
+    const maxScroll = Math.max(0, totalContentHeight - contentAreaHeight);
+
+    if (maxScroll <= 0) {
+      return;
+    }
+
+    this.boostInventoryScrollY = Phaser.Math.Clamp(this.boostInventoryScrollY - deltaY, -maxScroll, 0);
+    contentContainer.setY(this.boostInventoryScrollY);
+    this.refreshBoostInventoryScrollableInteractions(contentContainer);
+
+    const scrollbar = this.shopSoonModalObjects?.find(
+      (child): child is BoostInventoryScrollbar =>
+        child instanceof Phaser.GameObjects.Graphics && (child as BoostInventoryScrollbar).isBoostInventoryScrollbar === true
+    );
+
+    if (scrollbar === undefined) {
+      return;
+    }
+
+    const scrollPercent = -this.boostInventoryScrollY / maxScroll;
+    const scrollbarHeight = scrollbar.scrollbarHeight ?? 0;
+    scrollbar.setY(contentAreaY + 5 + scrollPercent * (contentAreaHeight - scrollbarHeight - 10));
+  }
+
   private getManagerPanelContentContainer(): ManagerPanelContentContainer | undefined {
     return this.managerPanel?.list.find(
       (child): child is ManagerPanelContentContainer =>
@@ -1690,10 +1738,40 @@ export class MineScene extends Phaser.Scene {
     );
   }
 
+  private getBoostInventoryContentContainer(): BoostInventoryContentContainer | undefined {
+    return this.shopSoonModalObjects?.find(
+      (child): child is BoostInventoryContentContainer =>
+        child instanceof Phaser.GameObjects.Container && (child as BoostInventoryContentContainer).isBoostInventoryContentContainer === true
+    );
+  }
+
   private refreshManagerPanelScrollableInteractions(contentContainer: ManagerPanelContentContainer): void {
     const zones = contentContainer.scrollInteractiveZones ?? [];
     const viewportTop = contentContainer.contentAreaY ?? (MANAGER_PANEL_Y + 66);
     const viewportBottom = viewportTop + (contentContainer.contentAreaHeight ?? (MANAGER_PANEL_HEIGHT - 72));
+
+    for (const zone of zones) {
+      const zoneTop = contentContainer.y + zone.y - zone.height * zone.originY;
+      const zoneBottom = zoneTop + zone.height;
+      const isInsideViewport = zoneTop >= viewportTop - 0.5 && zoneBottom <= viewportBottom + 0.5;
+
+      if (isInsideViewport) {
+        if (zone.input) {
+          zone.input.enabled = true;
+          zone.input.cursor = "pointer";
+        } else {
+          zone.setInteractive({ useHandCursor: true });
+        }
+      } else {
+        zone.disableInteractive();
+      }
+    }
+  }
+
+  private refreshBoostInventoryScrollableInteractions(contentContainer: BoostInventoryContentContainer): void {
+    const zones = contentContainer.scrollInteractiveZones ?? [];
+    const viewportTop = contentContainer.contentAreaY ?? 0;
+    const viewportBottom = viewportTop + (contentContainer.contentAreaHeight ?? 0);
 
     for (const zone of zones) {
       const zoneTop = contentContainer.y + zone.y - zone.height * zone.originY;
@@ -4176,6 +4254,9 @@ export class MineScene extends Phaser.Scene {
     }
 
     this.shopSoonModalObjects.forEach((obj) => obj.destroy());
+    if (this.boostModalMode === "inventory") {
+      this.boostInventoryScrollY = 0;
+    }
     this.shopSoonModalObjects = undefined;
     this.boostModalMode = undefined;
     this.boostTutorialShopDrawTarget = undefined;
@@ -4232,7 +4313,7 @@ export class MineScene extends Phaser.Scene {
       strokeThickness: 4
     }).setOrigin(0.5).setDepth(BOOST_SHOP_DEPTH + 4));
     const closeButton = this.createModalButton(panelX + BOOST_INVENTORY_PANEL_WIDTH - 38, panelY + 40, 34, 34, "X", 0x5c6670, BOOST_SHOP_DEPTH + 5);
-    const shopButton = this.createModalButton(panelX + 84, panelY + BOOST_INVENTORY_PANEL_HEIGHT - 38, 118, 38, "Shop", 0x386641, BOOST_SHOP_DEPTH + 5);
+    const shopButton = this.createModalButton(panelX + 72, panelY + 40, 106, 34, "Shop", 0x386641, BOOST_SHOP_DEPTH + 5);
     const objects: Phaser.GameObjects.GameObject[] = [
       overlay,
       panel,
@@ -4275,27 +4356,70 @@ export class MineScene extends Phaser.Scene {
     objects.push(inventoryLabel);
 
     const stacks = createBoostInventoryStacks(state.boosts.queuedBoosts);
+    const contentAreaX = panelX + 24;
+    const scrollAreaY = panelY + 196;
+    const contentAreaWidth = BOOST_INVENTORY_PANEL_WIDTH - 48;
+    const scrollAreaHeight = (panelY + BOOST_INVENTORY_PANEL_HEIGHT - 14) - scrollAreaY;
+    const contentMaskShape = this.make.graphics({});
+    this.pinUi(contentMaskShape);
+    contentMaskShape.fillStyle(0xffffff);
+    contentMaskShape.fillRoundedRect(contentAreaX, scrollAreaY, contentAreaWidth, scrollAreaHeight, 12);
+    const contentMask = contentMaskShape.createGeometryMask();
+    const contentContainer = this.pinUi(this.add.container(0, 0).setDepth(BOOST_SHOP_DEPTH + 4)) as BoostInventoryContentContainer;
+    contentContainer.isBoostInventoryContentContainer = true;
+    contentContainer.scrollInteractiveZones = [];
+    contentContainer.setMask(contentMask);
+    contentContainer.contentAreaY = scrollAreaY;
+    contentContainer.contentAreaHeight = scrollAreaHeight;
+    objects.push(contentMaskShape, contentContainer);
+
+    const listStartY = scrollAreaY + 4;
+    let contentBottomY = listStartY;
+
     if (stacks.length === 0) {
-      const emptyText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 292, "No boosts ready. Buy one in the shop.", smallUiTextStyle(16, "#bdd2d8"))
+      const emptyText = this.pinUi(this.add.text(GAME_WIDTH / 2, listStartY + 86, "No boosts ready. Buy one in the shop.", smallUiTextStyle(16, "#bdd2d8"))
         .setOrigin(0.5)
         .setDepth(BOOST_SHOP_DEPTH + 4));
-      objects.push(emptyText);
+      contentContainer.add(emptyText);
+      contentBottomY = listStartY + 126;
     } else {
-      const visibleStacks = stacks.slice(0, 8);
-      visibleStacks.forEach((stack, index) => {
+      stacks.forEach((stack, index) => {
         const column = index % 2;
         const row = Math.floor(index / 2);
         const cardX = panelX + 30 + column * 304;
-        const cardY = panelY + 202 + row * 68;
-        objects.push(...this.createBoostInventoryStackCard(stack, state, cardX, cardY, 284, 58, BOOST_SHOP_DEPTH + 4));
+        const cardY = listStartY + row * 68;
+        const cardObjects = this.createBoostInventoryStackCard(
+          stack,
+          state,
+          cardX,
+          cardY,
+          284,
+          58,
+          BOOST_SHOP_DEPTH + 4,
+          contentContainer.scrollInteractiveZones
+        );
+        contentContainer.add(cardObjects);
+        contentBottomY = Math.max(contentBottomY, cardY + 58);
       });
+    }
 
-      if (stacks.length > visibleStacks.length) {
-        const moreText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 482, `+${stacks.length - visibleStacks.length} more stacks`, smallUiTextStyle(12, "#bdd2d8"))
-          .setOrigin(0.5)
-          .setDepth(BOOST_SHOP_DEPTH + 4));
-        objects.push(moreText);
-      }
+    const totalContentHeight = contentBottomY - listStartY + 12;
+    contentContainer.totalContentHeight = totalContentHeight;
+    const maxScroll = Math.max(0, totalContentHeight - scrollAreaHeight);
+    this.boostInventoryScrollY = Phaser.Math.Clamp(this.boostInventoryScrollY, -maxScroll, 0);
+    contentContainer.setY(this.boostInventoryScrollY);
+    this.refreshBoostInventoryScrollableInteractions(contentContainer);
+
+    if (maxScroll > 0) {
+      const scrollbarHeight = Math.max(30, (scrollAreaHeight / totalContentHeight) * scrollAreaHeight);
+      const scrollbar = this.pinUi(this.add.graphics().setDepth(BOOST_SHOP_DEPTH + 6)) as BoostInventoryScrollbar;
+      scrollbar.isBoostInventoryScrollbar = true;
+      scrollbar.scrollbarHeight = scrollbarHeight;
+      scrollbar.fillStyle(0xf1c96b, 0.46);
+      scrollbar.fillRoundedRect(contentAreaX + contentAreaWidth - 10, 0, 4, scrollbarHeight, 2);
+      const scrollPercent = -this.boostInventoryScrollY / maxScroll;
+      scrollbar.setY(scrollAreaY + 5 + scrollPercent * (scrollAreaHeight - scrollbarHeight - 10));
+      objects.push(scrollbar);
     }
 
     this.shopSoonModalObjects = objects;
@@ -4334,7 +4458,8 @@ export class MineScene extends Phaser.Scene {
     y: number,
     width: number,
     height: number,
-    depth: number
+    depth: number,
+    scrollInteractiveZones?: Phaser.GameObjects.Zone[]
   ): Phaser.GameObjects.GameObject[] {
     const objects: Phaser.GameObjects.GameObject[] = [];
     const activeBoost = state.boosts.activeBoost;
@@ -4383,6 +4508,7 @@ export class MineScene extends Phaser.Scene {
         .setDepth(depth + 4)
     );
     objects.push(buttonBg, buttonText, buttonZone);
+    scrollInteractiveZones?.push(buttonZone);
 
     if (canActivate && this.boostTutorialInventoryActivateTarget === undefined) {
       this.boostTutorialInventoryActivateTarget = new Phaser.Geom.Rectangle(
@@ -7157,6 +7283,48 @@ export class MineScene extends Phaser.Scene {
     }
   }
 
+  private initializeTutorialProgress(state: GameState): void {
+    if (this.hasExistingSaveGame && !this.hasTutorialProgressRecord && shouldAutoCompleteTutorialForLegacySave(state)) {
+      this.tutorialCompleted = true;
+      this.tutorialProgressIndex = tutorialStepOrder.length;
+      this.tutorialManagerUnlockAcknowledged = true;
+      this.saveTutorialProgress();
+      return;
+    }
+
+    if (
+      !this.hasTutorialProgressRecord ||
+      shouldReplayTutorialForEarlyGameState(
+        state,
+        {
+          completed: this.tutorialCompleted,
+          progressIndex: this.tutorialProgressIndex
+        },
+        tutorialStepOrder.length
+      )
+    ) {
+      this.resetTutorialProgress();
+      this.saveTutorialProgress();
+    }
+  }
+
+  private resetTutorialProgress(): void {
+    this.hasTutorialProgressRecord = true;
+    this.tutorialCompleted = false;
+    this.tutorialProgressIndex = 0;
+    this.tutorialPendingActionStep = null;
+    this.tutorialManagerUnlockAcknowledged = false;
+    this.tutorialCompletionPending = false;
+    this.managerBoostHintShown = false;
+    this.managerBoostHintActive = false;
+    this.boostTutorialCompleted = false;
+    this.boostTutorialStep = "shop";
+    this.boostTutorialActive = false;
+    this.boostTutorialShopDrawTarget = undefined;
+    this.boostTutorialInventoryActivateTarget = undefined;
+    this.boostTutorialInventoryInstanceId = undefined;
+  }
+
   private saveTutorialProgress(): void {
     if (typeof window === "undefined") {
       return;
@@ -7166,6 +7334,7 @@ export class MineScene extends Phaser.Scene {
       window.localStorage.setItem(
         TUTORIAL_STORAGE_KEY,
         JSON.stringify({
+          version: 1,
           completed: this.tutorialCompleted,
           progressIndex: this.tutorialProgressIndex,
           managerUnlockAcknowledged: this.tutorialManagerUnlockAcknowledged,
@@ -7174,6 +7343,7 @@ export class MineScene extends Phaser.Scene {
           boostTutorialStep: this.boostTutorialStep
         })
       );
+      this.hasTutorialProgressRecord = true;
     } catch {
       // Tutorial progress is best-effort and separate from the savegame.
     }
