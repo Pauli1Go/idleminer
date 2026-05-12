@@ -5,8 +5,11 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
+  LEADERBOARD_SAVEGAME_STORAGE_KEY,
   MineSimulation,
+  createLocalStorageSaveGameRepository,
   getBoostBalanceConfig,
+  parseSaveGame,
   roundForState,
   type BalanceConfig
 } from "../src/core/index.ts";
@@ -95,9 +98,27 @@ test("Aktive Boosts multiplizieren Verkaufserloes statt Mine-, Elevator- oder Wa
   simulation.update(baseBalance.productionTimesSeconds.warehouseSellCycleTime + 0.1);
 
   const state = simulation.getState();
+  const saveGame = simulation.exportSaveGame();
+  const storage = new Map<string, string>();
+  const repository = createLocalStorageSaveGameRepository({
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+    removeItem: (key) => {
+      storage.delete(key);
+    }
+  });
+
+  repository.save(saveGame);
+  const leaderboardSave = parseSaveGame(storage.get(LEADERBOARD_SAVEGAME_STORAGE_KEY) ?? "");
+
   assert.equal(state.resources.totals.soldOre, 10);
   assert.equal(state.cash, 20);
   assert.equal(state.resources.totals.moneyEarned, 20);
+  assert.equal(saveGame.state.mines[0]?.totals.soldOre, 10);
+  assert.equal(leaderboardSave?.state.mines[0]?.totals.soldOre, 20);
+  assert.equal(leaderboardSave?.state.mines[0]?.totals.physicalSoldOre, 10);
 });
 
 test("Nach dem taeglichen Cheap-Free-Spin kostet ein weiterer Cheap-Kauf 500 Super Cash und queued", () => {

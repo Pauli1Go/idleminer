@@ -1,3 +1,4 @@
+import { roundForState } from "./balance.ts";
 import type { ManagerAbilityType, ManagerArea, ManagerRank } from "./balance.ts";
 import { createEmptyBoostSaveState } from "./boosts.ts";
 import type { BoostPurchaseTier, IncomeBoostRuntimeState, SaveGameBoostState } from "./boosts.ts";
@@ -10,6 +11,7 @@ import type { ElevatorState, MineShaftState, ResourceTotalsState, WarehouseState
 
 export const SAVEGAME_VERSION = 7 as const;
 export const SAVEGAME_STORAGE_KEY = "idle-miner.savegame";
+export const LEADERBOARD_SAVEGAME_STORAGE_KEY = "idle-miner.leaderboard-savegame";
 
 export interface SaveGameStorageLike {
   getItem(key: string): string | null;
@@ -212,6 +214,9 @@ export function createLocalStorageSaveGameRepository(
     save(record) {
       try {
         storage.setItem(key, serializeSaveGame(record));
+        if (key === SAVEGAME_STORAGE_KEY) {
+          storage.setItem(LEADERBOARD_SAVEGAME_STORAGE_KEY, serializeSaveGame(createLeaderboardSaveGameRecord(record)));
+        }
       } catch {
         // Persistency is best-effort. The game must keep running even when storage is unavailable.
       }
@@ -219,6 +224,9 @@ export function createLocalStorageSaveGameRepository(
     clear() {
       try {
         storage.removeItem?.(key);
+        if (key === SAVEGAME_STORAGE_KEY) {
+          storage.removeItem?.(LEADERBOARD_SAVEGAME_STORAGE_KEY);
+        }
       } catch {
         // Ignore storage cleanup errors.
       }
@@ -228,6 +236,28 @@ export function createLocalStorageSaveGameRepository(
 
 export function serializeSaveGame(saveGame: SaveGameRecord): string {
   return JSON.stringify(saveGame);
+}
+
+function createLeaderboardSaveGameRecord(saveGame: SaveGameRecord): SaveGameRecord {
+  return {
+    ...saveGame,
+    savedAt: saveGame.savedAt + 1,
+    state: {
+      ...saveGame.state,
+      mines: saveGame.state.mines.map((mine) => ({
+        ...mine,
+        totals: {
+          ...mine.totals,
+          physicalSoldOre: roundForState(mine.totals.soldOre),
+          soldOre: getLeaderboardSoldOreTotal(mine.totals)
+        }
+      }))
+    }
+  };
+}
+
+function getLeaderboardSoldOreTotal(totals: ResourceTotalsState): number {
+  return roundForState(Math.max(totals.soldOre, totals.moneyEarned));
 }
 
 export function parseSaveGame(raw: string): SaveGameRecord | null {
@@ -655,6 +685,7 @@ function readTotals(value: unknown): SaveGameStateV1["totals"] | null {
   const transportedOre = readNonNegativeNumber(value.transportedOre);
   const soldOre = readNonNegativeNumber(value.soldOre);
   const moneyEarned = readNonNegativeNumber(value.moneyEarned);
+  const physicalSoldOre = readNonNegativeNumber(value.physicalSoldOre);
 
   if (
     producedOre === null ||
@@ -671,7 +702,8 @@ function readTotals(value: unknown): SaveGameStateV1["totals"] | null {
     collectedByElevatorOre,
     transportedOre,
     soldOre,
-    moneyEarned
+    moneyEarned,
+    ...(physicalSoldOre !== null ? { physicalSoldOre } : {})
   };
 }
 

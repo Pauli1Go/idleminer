@@ -69,6 +69,7 @@ export interface ResourceTotalsState {
   transportedOre: number;
   soldOre: number;
   moneyEarned: number;
+  physicalSoldOre?: number;
 }
 
 export interface GameLevelsState {

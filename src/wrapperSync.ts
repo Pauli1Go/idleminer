@@ -1,4 +1,5 @@
 import {
+  LEADERBOARD_SAVEGAME_STORAGE_KEY,
   parseSaveGame,
   SAVEGAME_STORAGE_KEY,
   type SaveGameRecord,
@@ -104,7 +105,9 @@ export function saveBoostPurchaseToServer(): void {
   }
 
   try {
-    const saveData = window.localStorage.getItem(SAVEGAME_STORAGE_KEY);
+    const saveData =
+      window.localStorage.getItem(LEADERBOARD_SAVEGAME_STORAGE_KEY) ??
+      window.localStorage.getItem(SAVEGAME_STORAGE_KEY);
     if (saveData === null || saveData === "") {
       return;
     }

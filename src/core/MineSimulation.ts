@@ -495,11 +495,12 @@ export class MineSimulation {
         ? savedPendingOfflineOreSold
         : mine.pendingOfflineCash / this.balance.economy.sellPricePerOre
     );
+    const savedTotals = savedMine?.totals as (ResourceTotalsState & { physicalSoldOre?: number }) | undefined;
     mine.totals = {
       producedOre: roundForState(savedMine?.totals.producedOre ?? 0),
       collectedByElevatorOre: roundForState(savedMine?.totals.collectedByElevatorOre ?? 0),
       transportedOre: roundForState(savedMine?.totals.transportedOre ?? 0),
-      soldOre: roundForState(savedMine?.totals.soldOre ?? 0),
+      soldOre: roundForState(savedTotals?.physicalSoldOre ?? savedMine?.totals.soldOre ?? 0),
       moneyEarned: roundForState(savedMine?.totals.moneyEarned ?? 0)
     };
 
