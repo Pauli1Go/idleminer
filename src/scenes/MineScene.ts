@@ -888,6 +888,7 @@ type TutorialStepId =
   | "managerAbility"
   | "managerAllBoost"
   | "boostShopUnlock"
+  | "boostShopDraw"
   | "boostInventoryActivate";
 
 type TutorialBlockingActionStep = Extract<TutorialStepId, "manualMine" | "manualElevator" | "manualWarehouse">;
@@ -1080,6 +1081,9 @@ export class MineScene extends Phaser.Scene {
   private activeBoostPulseTween: Phaser.Tweens.Tween | undefined;
   private boostPurchaseAnimationActive = false;
   private boostModalMode: "shop" | "inventory" | undefined;
+  private boostTutorialShopDrawTarget: Phaser.Geom.Rectangle | undefined;
+  private boostTutorialAutoCollectedOfflineCash = false;
+  private activeMineOfflineCashModal: { mineId: MineId; collectAndClose: () => void } | undefined;
   private navigationButton: NavigationButtonUi | undefined;
   private shopSoonModalObjects: Phaser.GameObjects.GameObject[] | undefined;
   private saveRepository?: SaveGameRepository;
@@ -1135,7 +1139,7 @@ export class MineScene extends Phaser.Scene {
   private managerBoostHintShown = false;
   private managerBoostHintActive = false;
   private boostTutorialCompleted = false;
-  private boostTutorialStep: "shop" | "inventory" = "shop";
+  private boostTutorialStep: "shop" | "draw" | "inventory" = "shop";
   private boostTutorialActive = false;
   private boostTutorialInventoryActivateTarget: Phaser.Geom.Rectangle | undefined;
   private boostTutorialInventoryInstanceId: string | undefined;
@@ -1282,6 +1286,41 @@ export class MineScene extends Phaser.Scene {
     this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
     this.viewModel.flushSave();
     return true;
+  }
+
+  private collectOfflineCashForBoostTutorial(mineId: MineId): boolean {
+    if (!this.shouldAutoCollectOfflineCashForBoostTutorial(this.latestState)) {
+      return false;
+    }
+
+    this.boostTutorialAutoCollectedOfflineCash = true;
+    this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
+    this.viewModel.flushSave();
+    return true;
+  }
+
+  private collectActiveOfflineCashModalForBoostTutorial(): boolean {
+    if (
+      this.activeMineOfflineCashModal === undefined ||
+      !this.shouldAutoCollectOfflineCashForBoostTutorial(this.latestState)
+    ) {
+      return false;
+    }
+
+    this.boostTutorialAutoCollectedOfflineCash = true;
+    this.activeMineOfflineCashModal.collectAndClose();
+    return true;
+  }
+
+  private shouldAutoCollectOfflineCashForBoostTutorial(state: GameState | undefined): boolean {
+    return (
+      !this.boostTutorialAutoCollectedOfflineCash &&
+      state !== undefined &&
+      !this.boostTutorialCompleted &&
+      this.areBoostFeaturesUnlocked(state) &&
+      state.boosts.activeBoost === null &&
+      this.mapViewContainer === undefined
+    );
   }
 
   private handleShutdown(): void {
@@ -3251,6 +3290,10 @@ export class MineScene extends Phaser.Scene {
     mineId: MineId,
     result: { offlineSeconds: number; moneyEarned: number; oreSold: number }
   ): void {
+    if (this.collectOfflineCashForBoostTutorial(mineId)) {
+      return;
+    }
+
     const overlay = this.pinUi(
       this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7)
         .setDepth(900)
@@ -3331,6 +3374,7 @@ export class MineScene extends Phaser.Scene {
       }
 
       isClosed = true;
+      this.activeMineOfflineCashModal = undefined;
       this.applyFrame(this.viewModel.collectMineOfflineCash(mineId), this.time.now);
       this.viewModel.flushSave();
       objects.forEach((obj) => obj.destroy());
@@ -3347,9 +3391,11 @@ export class MineScene extends Phaser.Scene {
       }
 
       if (buttonZone.active) {
-        buttonZone.setInteractive({ useHandCursor: true });
+      buttonZone.setInteractive({ useHandCursor: true });
       }
     });
+
+    this.activeMineOfflineCashModal = { mineId, collectAndClose };
 
     overlay.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (!isInsidePanel(pointer)) {
@@ -4003,6 +4049,8 @@ export class MineScene extends Phaser.Scene {
     if (!this.areBoostFeaturesUnlocked(state)) {
       return;
     }
+
+    this.boostTutorialShopDrawTarget = undefined;
     const overlay = this.pinUi(
       this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.68)
         .setDepth(BOOST_SHOP_DEPTH)
@@ -4114,6 +4162,7 @@ export class MineScene extends Phaser.Scene {
     this.shopSoonModalObjects.forEach((obj) => obj.destroy());
     this.shopSoonModalObjects = undefined;
     this.boostModalMode = undefined;
+    this.boostTutorialShopDrawTarget = undefined;
   }
 
   private refreshBoostShopModal(): void {
@@ -4321,10 +4370,10 @@ export class MineScene extends Phaser.Scene {
 
     if (canActivate && this.boostTutorialInventoryActivateTarget === undefined) {
       this.boostTutorialInventoryActivateTarget = new Phaser.Geom.Rectangle(
-        buttonX - buttonWidth / 2,
-        buttonY - buttonHeight / 2,
-        buttonWidth,
-        buttonHeight
+        x,
+        y,
+        width,
+        height
       );
       this.boostTutorialInventoryInstanceId = stack.boosts[0].instanceId;
     }
@@ -4491,6 +4540,15 @@ export class MineScene extends Phaser.Scene {
         .setDepth(depth + 4)
     );
     const rollCenter = { x: GAME_WIDTH / 2, y: y + 84 };
+
+    if (tier === "cheap" && this.boostTutorialStep === "draw") {
+      this.boostTutorialShopDrawTarget = new Phaser.Geom.Rectangle(
+        buttonX - buttonWidth / 2,
+        buttonY - buttonHeight / 2,
+        buttonWidth,
+        buttonHeight
+      );
+    }
 
     buttonZone.on(
       "pointerdown",
@@ -7069,7 +7127,12 @@ export class MineScene extends Phaser.Scene {
       this.tutorialManagerUnlockAcknowledged = parsed.managerUnlockAcknowledged === true;
       this.managerBoostHintShown = parsed.managerBoostHintShown === true;
       this.boostTutorialCompleted = parsed.boostTutorialCompleted === true;
-      this.boostTutorialStep = parsed.boostTutorialStep === "inventory" ? "inventory" : "shop";
+      this.boostTutorialStep =
+        parsed.boostTutorialStep === "inventory"
+          ? "inventory"
+          : parsed.boostTutorialStep === "draw"
+            ? "draw"
+            : "shop";
     } catch {
       this.hasTutorialProgressRecord = false;
       this.tutorialProgressIndex = 0;
@@ -7101,6 +7164,10 @@ export class MineScene extends Phaser.Scene {
 
   private updateTutorialOverlay(state: GameState): void {
     if (this.shouldShowBoostTutorial(state)) {
+      if (this.collectActiveOfflineCashModalForBoostTutorial()) {
+        return;
+      }
+
       this.showBoostTutorial(state);
       return;
     }
@@ -7260,6 +7327,16 @@ export class MineScene extends Phaser.Scene {
         }
 
         return { rect: getObjectBounds(this.shopButton.zone), isWorldSpace: false };
+      case "boostShopDraw":
+        if (this.boostTutorialShopDrawTarget !== undefined) {
+          return { rect: this.boostTutorialShopDrawTarget, isWorldSpace: false };
+        }
+
+        if (this.shopButton !== undefined) {
+          return { rect: getObjectBounds(this.shopButton.zone), isWorldSpace: false };
+        }
+
+        return null;
       case "boostInventoryActivate":
         if (this.boostTutorialInventoryActivateTarget !== undefined) {
           return { rect: this.boostTutorialInventoryActivateTarget, isWorldSpace: false };
@@ -7274,7 +7351,12 @@ export class MineScene extends Phaser.Scene {
   }
 
   private shouldShowBoostTutorial(state: GameState): boolean {
-    if (this.boostTutorialCompleted || !this.areBoostFeaturesUnlocked(state) || this.mapViewContainer !== undefined) {
+    if (
+      this.boostTutorialCompleted ||
+      this.boostPurchaseAnimationActive ||
+      !this.areBoostFeaturesUnlocked(state) ||
+      this.mapViewContainer !== undefined
+    ) {
       return false;
     }
 
@@ -7293,13 +7375,23 @@ export class MineScene extends Phaser.Scene {
       return;
     }
 
-    if (state.boosts.queuedBoosts.length > 0) {
+    if (state.boosts.queuedBoosts.length > 0 && this.boostTutorialStep !== "inventory") {
       this.boostTutorialStep = "inventory";
+      this.saveTutorialProgress();
     }
 
-    const step: TutorialStepId = this.boostTutorialStep === "shop" ? "boostShopUnlock" : "boostInventoryActivate";
+    const step: TutorialStepId =
+      this.boostTutorialStep === "shop"
+        ? "boostShopUnlock"
+        : this.boostTutorialStep === "draw"
+          ? "boostShopDraw"
+          : "boostInventoryActivate";
 
-    if (step === "boostInventoryActivate" && this.shopSoonModalObjects === undefined) {
+    if (step === "boostShopDraw" && (this.boostModalMode !== "shop" || this.boostTutorialShopDrawTarget === undefined)) {
+      this.closeBoostShopModal();
+      this.showBoostShopModal();
+    } else if (step === "boostInventoryActivate" && this.boostModalMode !== "inventory") {
+      this.closeBoostShopModal();
       this.showBoostInventoryModal();
     }
 
@@ -7576,14 +7668,31 @@ export class MineScene extends Phaser.Scene {
 
   private handleBoostTutorialFocusedClick(state: GameState): void {
     if (this.boostTutorialStep === "shop") {
+      this.boostTutorialStep = "draw";
+      this.saveTutorialProgress();
+      this.showBoostShopModal();
+      this.updateTutorialOverlay(this.latestState ?? state);
+      return;
+    }
+
+    if (this.boostTutorialStep === "draw") {
+      if (this.boostModalMode !== "shop" || this.boostTutorialShopDrawTarget === undefined) {
+        this.showBoostShopModal();
+        this.updateTutorialOverlay(this.latestState ?? state);
+        return;
+      }
+
       if (this.boostPurchaseAnimationActive) {
         return;
       }
 
       this.boostPurchaseAnimationActive = true;
-      const source = this.shopButton === undefined
+      const source = this.boostTutorialShopDrawTarget === undefined
         ? { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 }
-        : this.getScreenCenter(this.shopButton.zone);
+        : {
+            x: this.boostTutorialShopDrawTarget.centerX,
+            y: this.boostTutorialShopDrawTarget.centerY
+          };
       const frame = this.viewModel.purchaseCheapBoost({ useFreeSpin: true });
       const purchaseEvent = frame.events.find(
         (event): event is Extract<SimulationEvent, { type: "incomeBoostPurchased" }> =>
@@ -7593,15 +7702,16 @@ export class MineScene extends Phaser.Scene {
       this.applyFrame(frame, this.time.now);
 
       if (purchaseEvent !== undefined) {
+        this.destroyTutorialOverlay();
         this.animateBoostPurchaseSpend(source, purchaseEvent.usedFreeSpin);
         this.animateBoostPurchaseRoll("cheap", purchaseEvent.boost, { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 - 72 }, () => {
           this.boostPurchaseAnimationActive = false;
+          this.boostTutorialStep = "inventory";
+          this.saveTutorialProgress();
+          this.closeBoostShopModal();
+          this.showBoostInventoryModal();
+          this.updateTutorialOverlay(this.latestState ?? state);
         });
-        this.boostTutorialStep = "inventory";
-        this.saveTutorialProgress();
-        this.closeBoostShopModal();
-        this.showBoostInventoryModal();
-        this.updateTutorialOverlay(this.latestState ?? state);
         return;
       }
 
@@ -7633,6 +7743,7 @@ export class MineScene extends Phaser.Scene {
     this.boostTutorialActive = false;
     this.boostTutorialCompleted = true;
     this.boostTutorialStep = "shop";
+    this.boostTutorialShopDrawTarget = undefined;
     this.boostTutorialInventoryActivateTarget = undefined;
     this.boostTutorialInventoryInstanceId = undefined;
     this.saveTutorialProgress();
@@ -7846,7 +7957,12 @@ function getTutorialCopy(
     case "boostShopUnlock":
       return {
         title: "Boosts unlocked",
-        body: "Boosts multiply income while playing and offline. Claim the daily free boost to try one now."
+        body: "Boosts multiply income while playing and offline. Open the boost shop to claim today's free draw."
+      };
+    case "boostShopDraw":
+      return {
+        title: "Daily free draw",
+        body: "Use the free small boost draw. The roll will choose one boost and place it in your inventory."
       };
     case "boostInventoryActivate":
       return {
