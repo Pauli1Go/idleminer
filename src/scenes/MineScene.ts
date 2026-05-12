@@ -1312,6 +1312,20 @@ export class MineScene extends Phaser.Scene {
     return true;
   }
 
+  private persistBoostPurchase(): void {
+    this.viewModel.flushSave();
+
+    if (typeof window === "undefined" || window.parent === window) {
+      return;
+    }
+
+    try {
+      window.parent.postMessage({ type: "idleminer:boost_purchased" }, window.location.origin);
+    } catch {
+      // The local save already happened; parent sync is best-effort.
+    }
+  }
+
   private shouldAutoCollectOfflineCashForBoostTutorial(state: GameState | undefined): boolean {
     return (
       !this.boostTutorialAutoCollectedOfflineCash &&
@@ -4612,6 +4626,7 @@ export class MineScene extends Phaser.Scene {
       return;
     }
 
+    this.persistBoostPurchase();
     this.animateBoostPurchaseSpend(source, purchaseEvent.usedFreeSpin);
     this.refreshBoostShopModal();
     this.animateBoostPurchaseRoll(tier, purchaseEvent.boost, rollCenter, () => {
@@ -7702,6 +7717,7 @@ export class MineScene extends Phaser.Scene {
       this.applyFrame(frame, this.time.now);
 
       if (purchaseEvent !== undefined) {
+        this.persistBoostPurchase();
         this.destroyTutorialOverlay();
         this.animateBoostPurchaseSpend(source, purchaseEvent.usedFreeSpin);
         this.animateBoostPurchaseRoll("cheap", purchaseEvent.boost, { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 - 72 }, () => {
