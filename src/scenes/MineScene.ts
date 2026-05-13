@@ -1097,6 +1097,7 @@ export class MineScene extends Phaser.Scene {
   private boostPurchaseAnimationActive = false;
   private boostModalMode: "shop" | "inventory" | undefined;
   private boostInventoryScrollY = 0;
+  private boostInventoryActiveTimerText: Phaser.GameObjects.Text | undefined;
   private boostTutorialShopDrawTarget: Phaser.Geom.Rectangle | undefined;
   private boostTutorialAutoCollectedOfflineCash = false;
   private activeMineOfflineCashModal: { mineId: MineId; collectAndClose: () => void } | undefined;
@@ -4259,6 +4260,7 @@ export class MineScene extends Phaser.Scene {
     }
     this.shopSoonModalObjects = undefined;
     this.boostModalMode = undefined;
+    this.boostInventoryActiveTimerText = undefined;
     this.boostTutorialShopDrawTarget = undefined;
   }
 
@@ -4332,6 +4334,7 @@ export class MineScene extends Phaser.Scene {
     objects.push(activePanel);
 
     if (activeBoost === null) {
+      this.boostInventoryActiveTimerText = undefined;
       const emptyActiveText = this.pinUi(this.add.text(GAME_WIDTH / 2, panelY + 113, "No active boost", smallUiTextStyle(16, "#bdd2d8"))
         .setOrigin(0.5)
         .setDepth(BOOST_SHOP_DEPTH + 4));
@@ -4347,6 +4350,7 @@ export class MineScene extends Phaser.Scene {
       const activeTimer = this.pinUi(this.add.text(panelX + 126, panelY + 127, formatDuration(activeBoost.remainingSeconds), smallUiTextStyle(14, "#dcecf1"))
         .setOrigin(0, 0.5)
         .setDepth(BOOST_SHOP_DEPTH + 5));
+      this.boostInventoryActiveTimerText = activeTimer;
       objects.push(...token.objects, activeText, activeTimer);
     }
 
@@ -4449,6 +4453,28 @@ export class MineScene extends Phaser.Scene {
 
     this.closeBoostShopModal();
     this.showBoostInventoryModal();
+  }
+
+  private refreshBoostInventoryActiveTimer(state: GameState): void {
+    if (this.boostModalMode !== "inventory") {
+      return;
+    }
+
+    const activeBoost = state.boosts.activeBoost;
+    if (activeBoost === null) {
+      if (this.boostInventoryActiveTimerText !== undefined) {
+        this.refreshBoostInventoryModal();
+      }
+      return;
+    }
+
+    if (this.boostInventoryActiveTimerText === undefined) {
+      this.refreshBoostInventoryModal();
+      return;
+    }
+
+    setTextIfChanged(this.boostInventoryActiveTimerText, formatDuration(activeBoost.remainingSeconds));
+    fitTextToWidth(this.boostInventoryActiveTimerText, 170, [14, 13, 12, 11, 10]);
   }
 
   private createBoostInventoryStackCard(
@@ -5651,6 +5677,13 @@ export class MineScene extends Phaser.Scene {
     if (boostStateChanged) {
       this.refreshBoostSlot(state);
       this.lastBoostSlotRefreshSecond = currentManagerSecond;
+    }
+    if (this.boostModalMode === "inventory") {
+      if (eventTypes.has("incomeBoostExpired")) {
+        this.refreshBoostInventoryModal();
+      } else if (boostTimerChanged) {
+        this.refreshBoostInventoryActiveTimer(state);
+      }
     }
     this.refreshBoostFeatureVisibility(state);
 
