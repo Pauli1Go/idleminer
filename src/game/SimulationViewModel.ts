@@ -138,15 +138,15 @@ export class SimulationViewModel {
   }
 
   purchaseBoost(tier: BoostPurchaseTier, options: PurchaseBoostOptions = {}): SimulationFrame {
-    return this.frameFromEvents(this.simulation.purchaseBoost(tier, options));
+    return this.frameFromBoostPurchaseEvents(this.simulation.purchaseBoost(tier, options));
   }
 
   purchaseCheapBoost(options: PurchaseBoostOptions = {}): SimulationFrame {
-    return this.frameFromEvents(this.simulation.purchaseCheapBoost(options));
+    return this.frameFromBoostPurchaseEvents(this.simulation.purchaseCheapBoost(options));
   }
 
   purchaseExpensiveBoost(options: PurchaseBoostOptions = {}): SimulationFrame {
-    return this.frameFromEvents(this.simulation.purchaseExpensiveBoost(options));
+    return this.frameFromBoostPurchaseEvents(this.simulation.purchaseExpensiveBoost(options));
   }
 
   activateNextIncomeBoost(): SimulationFrame {
@@ -274,6 +274,16 @@ export class SimulationViewModel {
       events,
       visual: this.createVisualState(state)
     };
+  }
+
+  private frameFromBoostPurchaseEvents(events: SimulationEvent[]): SimulationFrame {
+    const frame = this.frameFromEvents(events);
+
+    if (events.some((event) => event.type === "incomeBoostPurchased")) {
+      this.flushSave();
+    }
+
+    return frame;
   }
 
   private trackEvents(events: SimulationEvent[]): void {

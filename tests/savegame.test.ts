@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   MineSimulation,
+  SAVEGAME_STORAGE_KEY,
   SAVEGAME_VERSION,
   createLocalStorageSaveGameRepository,
   getDepthBlockadeSkipCost,
@@ -42,6 +43,22 @@ class MemoryStorage implements SaveGameStorageLike {
 
   get raw(): string | null {
     return this.rawValue;
+  }
+}
+
+class KeyedMemoryStorage implements SaveGameStorageLike {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
   }
 }
 
@@ -244,6 +261,32 @@ test("auto-saves after the configured interval", () => {
   assert.equal(saved.savedAt > 0, true);
 
   viewModel.dispose();
+});
+
+test("saves reduced Super Cash immediately after paid boost purchase", () => {
+  const storage = new KeyedMemoryStorage();
+  const repository = createLocalStorageSaveGameRepository(storage);
+  const viewModel = new SimulationViewModel(balance, { saveRepository: repository, isDebug: true });
+  const now = new Date(2026, 0, 1, 10).getTime();
+
+  viewModel.purchaseCheapBoost({ now, randomValue: 0 });
+  viewModel.purchaseCheapBoost({ now, randomValue: 0.999 });
+
+  const saved = parseSaveGame(storage.getItem(SAVEGAME_STORAGE_KEY) ?? "");
+
+  assert.ok(saved);
+  assert.equal(saved.state.superCash, 9500);
+  assert.equal(saved.state.boosts.queuedIncomeBoosts.length, 2);
+  assert.equal(saved.state.boosts.queuedIncomeBoosts[1]?.definitionId, "cheap_20x_5m");
+
+  const reloadedViewModel = new SimulationViewModel(balance, { saveRepository: repository });
+  const reloadedState = reloadedViewModel.getInitialFrame().state;
+
+  assert.equal(reloadedState.superCash, 9500);
+  assert.equal(reloadedState.boosts.queuedBoosts.length, 2);
+
+  viewModel.dispose();
+  reloadedViewModel.dispose();
 });
 
 test("backfills Super Cash auch beim Migrieren eines echten V6-Saves", () => {
