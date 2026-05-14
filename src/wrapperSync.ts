@@ -72,15 +72,66 @@ async function postWrapperApi(fields: Record<string, string>): Promise<unknown> 
   return response.json();
 }
 
-function hasSoldProgress(save: SaveGameRecord | null): boolean {
+function isPositive(value: number | null | undefined): boolean {
+  return Number.isFinite(value) && (value ?? 0) > Number.EPSILON;
+}
+
+function hasBoostProgress(save: SaveGameRecord): boolean {
   return (
-    save?.state.mines.some((mine) => Number.isFinite(mine.totals.soldOre) && mine.totals.soldOre > Number.EPSILON) ??
-    false
+    save.state.boosts.incomeBoosts.length > 0 ||
+    save.state.boosts.queuedIncomeBoosts.length > 0 ||
+    save.state.boosts.lastFreeCheapBoostSpinAt !== null
+  );
+}
+
+function hasMineProgress(save: SaveGameRecord): boolean {
+  return save.state.mines.some((mine, index) => {
+    if (index > 0 && mine.isUnlocked) {
+      return true;
+    }
+
+    if (
+      mine.prestigeLevel > 0 ||
+      isPositive(mine.pendingOfflineCash) ||
+      isPositive(mine.pendingOfflineOreSold) ||
+      isPositive(mine.totals.producedOre) ||
+      isPositive(mine.totals.collectedByElevatorOre) ||
+      isPositive(mine.totals.transportedOre) ||
+      isPositive(mine.totals.soldOre) ||
+      isPositive(mine.totals.moneyEarned) ||
+      mine.elevator.level > 1 ||
+      mine.warehouse.level > 1 ||
+      isPositive(mine.elevator.carriedOre) ||
+      isPositive(mine.warehouse.storedOre)
+    ) {
+      return true;
+    }
+
+    return mine.mineShafts.some((shaft) =>
+      shaft.level > 1 ||
+      isPositive(shaft.storedOre) ||
+      isPositive(shaft.cycleProgressSeconds) ||
+      shaft.assignedManagerId !== null ||
+      shaft.activeManagerAbilityState !== null
+    );
+  });
+}
+
+function hasMeaningfulLocalProgress(save: SaveGameRecord | null): boolean {
+  return (
+    save !== null &&
+    (
+      isPositive(save.state.money) ||
+      isPositive(save.state.superCash) ||
+      save.state.hasEarnedSuperCash === true ||
+      hasBoostProgress(save) ||
+      hasMineProgress(save)
+    )
   );
 }
 
 export async function importServerSaveForEmptyLocalGame(repository: SaveGameRepository | undefined): Promise<void> {
-  if (repository === undefined || hasSoldProgress(repository.load())) {
+  if (repository === undefined || hasMeaningfulLocalProgress(repository.load())) {
     return;
   }
 
