@@ -182,6 +182,7 @@ export interface SaveGameRecordV7 {
   version: 7;
   savedAt: number;
   state: SaveGameStateV7;
+  migratedFromVersion?: number;
 }
 
 export type SaveGameRecord = SaveGameRecordV7;
@@ -289,7 +290,8 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(upgradeStateV1ToV2(state)))
+      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(upgradeStateV1ToV2(state))),
+      migratedFromVersion: parsed.version
     };
   }
 
@@ -303,7 +305,8 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(state))
+      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(state)),
+      migratedFromVersion: parsed.version
     };
   }
 
@@ -317,7 +320,8 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(state)))
+      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(state))),
+      migratedFromVersion: parsed.version
     };
   }
 
@@ -328,7 +332,8 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
       return {
         version: SAVEGAME_VERSION,
         savedAt,
-        state
+        state,
+        ...legacySourceVersionFields(parsed)
       };
     }
 
@@ -341,7 +346,8 @@ export function parseSaveGame(raw: string): SaveGameRecord | null {
     return {
       version: SAVEGAME_VERSION,
       savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(legacyState)))
+      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(legacyState))),
+      migratedFromVersion: readLegacySourceVersion(parsed.migratedFromVersion) ?? parsed.version
     };
   }
 
@@ -359,7 +365,8 @@ export function normalizeSaveGameRecord(saveGame: SaveGameRecordCompatible): Sav
     return {
       version: SAVEGAME_VERSION,
       savedAt: saveGame.savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(upgradeStateV1ToV2(state)))
+      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(upgradeStateV1ToV2(state))),
+      migratedFromVersion: saveGame.version
     };
   }
 
@@ -373,7 +380,8 @@ export function normalizeSaveGameRecord(saveGame: SaveGameRecordCompatible): Sav
     return {
       version: SAVEGAME_VERSION,
       savedAt: saveGame.savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(state))
+      state: upgradeLegacyStateToV7(upgradeStateV2ToV3(state)),
+      migratedFromVersion: saveGame.version
     };
   }
 
@@ -387,7 +395,8 @@ export function normalizeSaveGameRecord(saveGame: SaveGameRecordCompatible): Sav
     return {
       version: SAVEGAME_VERSION,
       savedAt: saveGame.savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(state)))
+      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(state))),
+      migratedFromVersion: saveGame.version
     };
   }
 
@@ -398,7 +407,8 @@ export function normalizeSaveGameRecord(saveGame: SaveGameRecordCompatible): Sav
       return {
         version: SAVEGAME_VERSION,
         savedAt: saveGame.savedAt,
-        state
+        state,
+        ...legacySourceVersionFields(saveGame)
       };
     }
 
@@ -411,11 +421,23 @@ export function normalizeSaveGameRecord(saveGame: SaveGameRecordCompatible): Sav
     return {
       version: SAVEGAME_VERSION,
       savedAt: saveGame.savedAt,
-      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(legacyState)))
+      state: upgradeLegacyStateToV7(upgradeStateV5ToV6(upgradeStateV4ToV5(legacyState))),
+      migratedFromVersion: readLegacySourceVersion(saveGame.migratedFromVersion) ?? saveGame.version
     };
   }
 
   return null;
+}
+
+function legacySourceVersionFields(value: { migratedFromVersion?: unknown }): Pick<SaveGameRecord, "migratedFromVersion"> {
+  const migratedFromVersion = readLegacySourceVersion(value.migratedFromVersion);
+  return migratedFromVersion === undefined ? {} : { migratedFromVersion };
+}
+
+function readLegacySourceVersion(value: unknown): number | undefined {
+  return Number.isInteger(value) && Number(value) > 0 && Number(value) < SAVEGAME_VERSION
+    ? Number(value)
+    : undefined;
 }
 
 function readStateV1(value: unknown): SaveGameStateV1 | null {

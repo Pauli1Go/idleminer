@@ -358,6 +358,7 @@ export class MineSimulation {
   }
 
   importSaveGame(saveGame: SaveGameRecordCompatible, loadedAt: number = Date.now()): OfflineProgressResult | null {
+    const shouldRecoverSuperCashFromProgress = shouldBackfillSuperCashFromProgress(saveGame);
     const record = normalizeSaveGameRecord(saveGame);
 
     if (record === null) {
@@ -374,7 +375,7 @@ export class MineSimulation {
     this.money = roundForState(requireNonNegativeNumber(state.money, "state.money"));
     this.superCash = roundForState(requireNonNegativeNumber(state.superCash, "state.superCash"));
     this.hasEarnedSuperCash = state.hasEarnedSuperCash || this.superCash > 0;
-    if (this.isDebug) {
+    if (this.isDebug && shouldRecoverSuperCashFromProgress) {
       this.superCash = Math.max(this.superCash, DEBUG_SUPER_CASH);
       this.hasEarnedSuperCash = true;
     }
@@ -394,7 +395,9 @@ export class MineSimulation {
         ? nextActiveMineId
         : this.mineDefinitions.find((definition) => this.minesById[definition.mineId]?.isUnlocked)?.mineId
           ?? DEFAULT_ACTIVE_MINE_ID;
-    this.superCash = roundForState(Math.max(this.superCash, this.getRecoveredSuperCashTotal()));
+    if (shouldRecoverSuperCashFromProgress) {
+      this.superCash = roundForState(Math.max(this.superCash, this.getRecoveredSuperCashTotal()));
+    }
     this.hasEarnedSuperCash = this.hasEarnedSuperCash || this.superCash > 0;
 
     return this.applyOfflineProgress(record.savedAt, loadedAt);
@@ -3583,6 +3586,27 @@ function requireNonNegativeInteger(value: number, fieldName: string): number {
   }
 
   return value;
+}
+
+function shouldBackfillSuperCashFromProgress(saveGame: SaveGameRecordCompatible): boolean {
+  if ("migratedFromVersion" in saveGame) {
+    const migratedFromVersion = saveGame.migratedFromVersion;
+    if (
+      Number.isInteger(migratedFromVersion) &&
+      migratedFromVersion !== undefined &&
+      migratedFromVersion > 0 &&
+      migratedFromVersion < SAVEGAME_VERSION
+    ) {
+      return true;
+    }
+  }
+
+  if (saveGame.version !== SAVEGAME_VERSION) {
+    return true;
+  }
+
+  const state = saveGame.state as { superCash?: unknown } | null;
+  return typeof state !== "object" || state === null || !Object.prototype.hasOwnProperty.call(state, "superCash");
 }
 
 function requireNonNegativeNumber(value: number, fieldName: string): number {

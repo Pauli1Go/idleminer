@@ -285,8 +285,34 @@ test("saves reduced Super Cash immediately after paid boost purchase", () => {
   assert.equal(reloadedState.superCash, 9500);
   assert.equal(reloadedState.boosts.queuedBoosts.length, 2);
 
+  const debugReloadedViewModel = new SimulationViewModel(balance, { saveRepository: repository, isDebug: true });
+  const debugReloadedState = debugReloadedViewModel.getInitialFrame().state;
+
+  assert.equal(debugReloadedState.superCash, 9500);
+  assert.equal(debugReloadedState.boosts.queuedBoosts.length, 2);
+
   viewModel.dispose();
   reloadedViewModel.dispose();
+  debugReloadedViewModel.dispose();
+});
+
+test("keeps explicit Super Cash from current saves instead of refilling spent rewards", () => {
+  const simulation = new MineSimulation(balance, { fixedStepSeconds: 0.1 });
+  const save = simulation.exportSaveGame(1234);
+  const coalMine = save.state.mines[0];
+
+  assert.ok(coalMine);
+
+  coalMine.elevator.level = 101;
+  coalMine.mineShafts[0]!.level = 101;
+  save.state.superCash = 0;
+  save.state.hasEarnedSuperCash = true;
+
+  const restored = new MineSimulation(balance, { fixedStepSeconds: 0.1 });
+  restored.importSaveGame(save, save.savedAt);
+
+  assert.equal(restored.getState().superCash, 0);
+  assert.equal(restored.getState().hasEarnedSuperCash, true);
 });
 
 test("backfills Super Cash auch beim Migrieren eines echten V6-Saves", () => {
